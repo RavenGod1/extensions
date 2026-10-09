@@ -309,6 +309,10 @@ async function fetchEpisodeSources(episodeId, category = null) {
         const s = $(el);
         const embedUrl = s.attr("data-server-url") || s.attr("data-url");
         if (!embedUrl) return;
+        // megaplay embeds are a JS-gated stub with no static payload and
+        // can never resolve here; skip them so failures surface fast
+        // instead of burning retries on a dead end.
+        if (/megaplay\.buzz/i.test(embedUrl)) return;
         const label = s.attr("data-label") || "Server";
         const lang = (s.attr("data-lang") || panel).toLowerCase();
         sources.push({
@@ -348,14 +352,6 @@ async function fetchEmbedHtml(embedUrl, playerReferer) {
   return html;
 }
 
-async function fetchSourceJson(sourceApi, embedUrl) {
-  return fetchJson(sourceApi, {
-    Referer: embedUrl,
-    Accept: "application/json",
-    "X-Requested-With": "XMLHttpRequest",
-  });
-}
-
 async function processServer(server) {
   if (!server?.url) return null;
   try {
@@ -376,7 +372,27 @@ async function processServer(server) {
     const sourceApi = payload.sourceUrl.startsWith("http")
       ? payload.sourceUrl
       : embedObj.origin + payload.sourceUrl;
-    const data = await fetchSourceJson(sourceApi, embedUrl);
+    const sourceHeaders = {
+      Referer: embedUrl,
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+    let data = null;
+    try {
+      data = await fetchJson(sourceApi, sourceHeaders);
+    } catch (_) {
+      data = null;
+    }
+    if (!data || data.status !== "ok" || !data.source) {
+      // Provider-direct fallback (?provider=1 skips the cached copy),
+      // mirroring the player's own failover.
+      try {
+        const sep = sourceApi.includes("?") ? "&" : "?";
+        data = await fetchJson(sourceApi + sep + "provider=1", sourceHeaders);
+      } catch (_) {
+        data = null;
+      }
+    }
     if (!data || data.status !== "ok" || !data.source)
       throw new Error("Source API returned no stream");
     if (global.setDynamicReferer) {
@@ -410,7 +426,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.4",
+  version: "1.0.5",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
