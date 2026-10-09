@@ -196,32 +196,16 @@ async function SearchAnime(query, filters = {}) {
 async function fetchRecentEpisodes(filters = {}) {
   const page = parseInt(filters?.page, 10) || 1;
   if (!hasActiveFilters(filters)) {
-    if (page > 1) {
-      return {
-        currentPage: page,
-        hasNextPage: false,
-        totalPages: 1,
-        results: [],
-      };
-    }
-    const html = await fetchText(`${baseUrl}/`);
-    const $ = cheerio.load(html);
-    const results = [];
-    $("a.ak-trending-title").each((_, el) => {
-      const a = $(el);
-      const href = a.attr("href") || "";
-      const m = href.match(/\/watch\/([^/?#]+)/);
-      if (!m) return;
-      const id = m[1];
-      const title = a.attr("data-orig") || a.text().trim();
-      if (id && title && !results.some((r) => r.id === id)) {
-        results.push({ id, title, image: null });
-      }
-    });
+    // Full catalog sorted by latest updates: 30 posters per page with
+    // real pagination (the homepage trending strip has neither).
+    const html = await fetchText(
+      `${baseUrl}/browse?sort=updated_date${page > 1 ? `&page=${page}` : ""}`,
+    );
+    const results = parseSearchCards(html);
     return {
-      currentPage: 1,
-      hasNextPage: false,
-      totalPages: 1,
+      currentPage: page,
+      hasNextPage: hasNextBrowsePage(html, page),
+      totalPages: page,
       results,
     };
   }
@@ -299,7 +283,7 @@ async function fetchEpisode(id, page = 1) {
   return {
     TotalPages: 1,
     total: episodes.length,
-    Episodes: episodes,
+    episodes: episodes,
   };
 }
 
@@ -394,7 +378,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.1",
+  version: "1.0.2",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
