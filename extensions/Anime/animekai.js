@@ -76,7 +76,9 @@ async function fetchText(url, headers = {}, maxRetries = 3) {
 }
 
 async function fetchJson(url, headers = {}) {
-  const client = global.axios || require("axios");
+  // Bare client first (see fetchEmbedHtml): session cookies have been
+  // observed to turn these calls into instant 403s.
+  const client = rawAxios();
   let lastErr = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     for (const tryUrl of getBaseVariants(url)) {
@@ -330,32 +332,44 @@ async function fetchEpisodeSources(episodeId, category = null) {
   return { sources, subtitles: [] };
 }
 
+// Embed/stream hosts may hold stale clearance cookies in the app session
+// that turn every authenticated request into an instant 403, while clean
+// requests sail through. So media hosts are fetched with a bare client
+// (no interceptors, no merged cookies) FIRST; the clearance session is
+// only a fallback for hosts that truly gate on it.
+function rawAxios() {
+  try {
+    return require("axios");
+  } catch (_) {
+    return global.axios;
+  }
+}
+
 // Embed pages sit behind bot protection that plain requests often fail.
-// Try the clearance session once, then a single direct fetch. Deliberately
-// NO tight retry loop here: megavid rate-limits aggressive retries (the
-// 403s feed on themselves), and the task-level backoff (5s/10s/20s)
-// provides the spacing instead.
+// One clean direct attempt first (no hammering: the task-level backoff
+// provides spacing), clearance session as fallback.
 async function fetchEmbedHtml(embedUrl, playerReferer) {
+  const bareHeaders = {
+    Referer: playerReferer,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+  try {
+    const { data } = await rawAxios().get(embedUrl, {
+      headers: bareHeaders,
+      timeout: 20000,
+      responseType: "text",
+    });
+    if (typeof data === "string" && data.includes("player-payload"))
+      return data;
+  } catch (_) {}
   if (typeof global.scrapperFetch === "function") {
     try {
       const html = await global.scrapperFetch(embedUrl);
       if (html && html.includes("player-payload")) return html;
     } catch (_) {}
   }
-  const client = global.axios || require("axios");
-  const { data } = await client.get(embedUrl, {
-    headers: {
-      Referer: playerReferer,
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-    timeout: 20000,
-    responseType: "text",
-  });
-  if (!data || !data.includes("player-payload")) {
-    throw new Error("Embed page blocked or has no player");
-  }
-  return data;
+  throw new Error("Embed page blocked or has no player");
 }
 
 async function processServer(server) {
@@ -432,7 +446,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.6",
+  version: "1.0.7",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
