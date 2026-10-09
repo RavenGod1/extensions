@@ -326,31 +326,59 @@ async function fetchEpisodeSources(episodeId, category = null) {
   return { sources, subtitles: [] };
 }
 
+// Embed pages sit behind bot protection that plain requests often fail.
+// Prefer the in-app browser session (carries clearance), fall back to
+// direct fetches with retries.
+async function fetchEmbedHtml(embedUrl, playerReferer) {
+  if (typeof global.scrapperFetch === "function") {
+    try {
+      const html = await global.scrapperFetch(embedUrl);
+      if (html && html.includes("player-payload")) return html;
+    } catch (_) {}
+  }
+  const html = await fetchText(embedUrl, {
+    Referer: playerReferer,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  });
+  if (!html.includes("player-payload")) {
+    throw new Error("Embed page blocked or has no player");
+  }
+  return html;
+}
+
+async function fetchSourceJson(sourceApi, embedUrl) {
+  return fetchJson(sourceApi, {
+    Referer: embedUrl,
+    Accept: "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+  });
+}
+
 async function processServer(server) {
   if (!server?.url) return null;
   try {
     const embedUrl = server.url;
     const embedObj = new URL(embedUrl);
     const playerReferer = embedObj.origin + "/";
-    const embedHtml = await fetchText(embedUrl, { Referer: playerReferer });
+    const embedHtml = await fetchEmbedHtml(embedUrl, playerReferer);
     const $ = cheerio.load(embedHtml);
     const payloadRaw = $("#player-payload").html() || "";
     let payload = null;
     try {
       payload = JSON.parse(payloadRaw);
     } catch (_) {
-      return null;
+      throw new Error("Embed page has no player payload");
     }
-    if (!payload?.sourceUrl) return null;
+    if (!payload?.sourceUrl)
+      throw new Error("Embed page has no source URL");
     const sourceApi = payload.sourceUrl.startsWith("http")
       ? payload.sourceUrl
       : embedObj.origin + payload.sourceUrl;
-    const data = await fetchJson(sourceApi, {
-      Referer: embedUrl,
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-    });
-    if (!data || data.status !== "ok" || !data.source) return null;
+    const data = await fetchSourceJson(sourceApi, embedUrl);
+    if (!data || data.status !== "ok" || !data.source)
+      throw new Error("Source API returned no stream");
     if (global.setDynamicReferer) {
       try {
         const streamDomain = new URL(data.source).hostname;
@@ -382,7 +410,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.3",
+  version: "1.0.4",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
