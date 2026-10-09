@@ -273,10 +273,14 @@ async function fetchEpisode(id, page = 1) {
     const m = href.match(/\/watch\/(.+)/);
     const epId = m ? m[1].replace(/^\/+|\/+$/g, "") : `${slug}/ep-${num}`;
     const rawTitle = a.text().trim().replace(/^[\d.]+\s*/, "").trim();
+    const langs = [];
+    if (li.attr("data-has-sub") === "1") langs.push("sub");
+    if (li.attr("data-has-dub") === "1") langs.push("dub");
     episodes.push({
       id: epId,
       number: num,
       title: rawTitle || `Episode ${num}`,
+      langs: langs.length > 0 ? langs : ["sub"],
     });
   });
   episodes.sort((a, b) => a.number - b.number);
@@ -314,7 +318,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
           lang: lang === "dub" ? "dub" : "sub",
           type: lang === "dub" ? "dub" : "sub",
           isUnresolved: true,
-          rawServer: { embedUrl, label, lang },
+          rawServer: { url: embedUrl, embedUrl, label, lang },
         });
       },
     );
@@ -378,7 +382,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.2",
+  version: "1.0.3",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
