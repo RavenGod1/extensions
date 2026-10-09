@@ -331,8 +331,10 @@ async function fetchEpisodeSources(episodeId, category = null) {
 }
 
 // Embed pages sit behind bot protection that plain requests often fail.
-// Prefer the in-app browser session (carries clearance), fall back to
-// direct fetches with retries.
+// Try the clearance session once, then a single direct fetch. Deliberately
+// NO tight retry loop here: megavid rate-limits aggressive retries (the
+// 403s feed on themselves), and the task-level backoff (5s/10s/20s)
+// provides the spacing instead.
 async function fetchEmbedHtml(embedUrl, playerReferer) {
   if (typeof global.scrapperFetch === "function") {
     try {
@@ -340,16 +342,20 @@ async function fetchEmbedHtml(embedUrl, playerReferer) {
       if (html && html.includes("player-payload")) return html;
     } catch (_) {}
   }
-  const html = await fetchText(embedUrl, {
-    Referer: playerReferer,
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+  const client = global.axios || require("axios");
+  const { data } = await client.get(embedUrl, {
+    headers: {
+      Referer: playerReferer,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    timeout: 20000,
+    responseType: "text",
   });
-  if (!html.includes("player-payload")) {
+  if (!data || !data.includes("player-payload")) {
     throw new Error("Embed page blocked or has no player");
   }
-  return html;
+  return data;
 }
 
 async function processServer(server) {
@@ -426,7 +432,7 @@ async function processServer(server) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.5",
+  version: "1.0.6",
   SearchAnime,
   AnimeInfo,
   fetchEpisodeSources,
