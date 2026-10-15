@@ -11,6 +11,12 @@
       "version": "6.0.0",
       "MinAppVersion": "11.0.0",
       "disabled": false
+    },
+    {
+      "name": "animekai",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
     }
   ],
   "Manga": [
