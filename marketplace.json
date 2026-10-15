@@ -11,12 +11,6 @@
       "version": "6.0.0",
       "MinAppVersion": "11.0.0",
       "disabled": false
-    },
-    {
-      "name": "anineko",
-      "version": "4.0.0",
-      "MinAppVersion": "11.0.0",
-      "disabled": true
     }
   ],
   "Manga": [
