@@ -248,8 +248,15 @@ function parseAitemCards($) {
     if (!href || !title) return;
     const match = href.match(/\/anime\/([^\/\?#]+)/);
     if (!match) return;
+    // Ranked side-item cards carry the cover as a CSS background-image
+    // on the anchor instead of an <img> tag.
+    const styleAttr = ($el.is("a") ? $el.attr("style") : aTag.attr("style")) || "";
+    const bgMatch = styleAttr.match(/background-image:\s*url\(['"]?([^'")]+)['"]?\)/i);
     const image =
-      $el.find("img").attr("src") || $el.find("img").attr("data-src") || null;
+      $el.find("img").attr("src") ||
+      $el.find("img").attr("data-src") ||
+      (bgMatch && bgMatch[1]) ||
+      null;
     results.push({ id: match[1], title: title.trim(), image });
   });
   return results;
@@ -708,7 +715,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.0",
+  version: "1.1.1",
   baseUrl,
   headerRules: [
     {
