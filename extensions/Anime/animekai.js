@@ -106,6 +106,108 @@ async function resilientGet(url, { headers = {}, timeout = 15000, triesPerMirror
   throw lastErr || new Error("All AnimeKai mirrors failed");
 }
 
+// Genre name -> animekai.ro numeric filter id (from /filter form).
+const GENRE_IDS = {
+  Action: 1,
+  "Action & Adventure": 46,
+  Adventure: 2,
+  Animation: 47,
+  "Boys Love": 49,
+  Cars: 42,
+  Comedy: 3,
+  Dementia: 40,
+  Demons: 23,
+  Drama: 4,
+  Ecchi: 10,
+  Erotica: 51,
+  Fantasy: 5,
+  Game: 30,
+  "Girls Love": 50,
+  Gourmet: 45,
+  Harem: 38,
+  Historical: 32,
+  Horror: 16,
+  Isekai: 34,
+  Josei: 41,
+  Kids: 39,
+  Magic: 27,
+  "Mahou Shoujo": 17,
+  "Martial Arts": 36,
+  Mecha: 14,
+  Military: 21,
+  Music: 18,
+  Mystery: 11,
+  Parody: 31,
+  Police: 19,
+  Psychological: 9,
+  Romance: 6,
+  Samurai: 33,
+  School: 24,
+  "Sci-Fi": 8,
+  "Sci-Fi & Fantasy": 48,
+  Seinen: 25,
+  Shoujo: 37,
+  "Shoujo Ai": 28,
+  Shounen: 22,
+  "Shounen Ai": 29,
+  "Slice of Life": 7,
+  Space: 20,
+  Sports: 15,
+  Supernatural: 12,
+  "Super Power": 26,
+  Suspense: 44,
+  Thriller: 13,
+  unknown: 43,
+  Vampire: 35,
+};
+
+function resolveGenreIds(genre) {
+  if (genre === undefined || genre === null || genre === "") return [];
+  const list = Array.isArray(genre) ? genre : String(genre).split(",");
+  const ids = [];
+  for (const g of list) {
+    if (typeof g === "number" && Number.isFinite(g)) {
+      ids.push(g);
+      continue;
+    }
+    const s = String(g).trim();
+    if (!s) continue;
+    if (/^\d+$/.test(s)) {
+      ids.push(Number(s));
+      continue;
+    }
+    const found = Object.keys(GENRE_IDS).find(
+      (n) => n.toLowerCase() === s.toLowerCase(),
+    );
+    if (found) ids.push(GENRE_IDS[found]);
+  }
+  return [...new Set(ids)];
+}
+
+const STATUS_SLUGS = {
+  ongoing: "currently-airing",
+  airing: "currently-airing",
+  "currently airing": "currently-airing",
+  completed: "finished-airing",
+  finished: "finished-airing",
+  "finished airing": "finished-airing",
+  upcoming: "not-yet-aired",
+  "not yet aired": "not-yet-aired",
+};
+
+function resolveStatus(status) {
+  if (status === undefined || status === null || status === "") return "";
+  const s = String(status).trim().toLowerCase().replace(/_/g, "-");
+  if (
+    s === "currently-airing" ||
+    s === "finished-airing" ||
+    s === "not-yet-aired"
+  ) {
+    return s;
+  }
+  return STATUS_SLUGS[s] || "";
+}
+
 function parsePagination($, defaultPage) {
   let totalPages = 1;
   $(".pagination a").each((i, el) => {
@@ -174,6 +276,24 @@ async function fetchRecentEpisodes(filters = {}) {
     const page = filters?.page || 1;
     const params = new URLSearchParams();
     if (filters?.keyword) params.append("keyword", String(filters.keyword));
+    for (const gid of resolveGenreIds(filters?.genre)) {
+      params.append("genre[]", String(gid));
+    }
+    const status = resolveStatus(filters?.status);
+    if (status) params.append("status[]", status);
+    if (filters?.sort) params.append("sort", String(filters.sort));
+    if (filters?.language) {
+      const lang = String(filters.language).toLowerCase();
+      if (lang === "sub" || lang === "dub" || lang === "hsub") {
+        params.append("language[]", lang);
+      }
+    }
+    if (filters?.type) {
+      const t = String(filters.type);
+      if (["TV", "Movie", "ONA", "OVA", "Special", "Music"].includes(t)) {
+        params.append("term_type[]", t);
+      }
+    }
     params.append("page", String(page));
     const { data: html } = await resilientGet(`${baseUrl}/filter?${params.toString()}`);
     const $ = cheerio.load(html);
@@ -588,7 +708,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.0.0",
+  version: "1.1.0",
   baseUrl,
   headerRules: [
     {
