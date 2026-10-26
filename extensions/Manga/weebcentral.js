@@ -111,7 +111,7 @@ async function latestManga(page = 1, filters = {}) {
 
     const latestMangas = [];
 
-    $("article").each((index, article) => {
+    $("article").each((_, article) => {
       const Manga = $(article);
       let id = Manga.find("a").attr("href");
       if (id?.includes("/series/")) {
@@ -193,7 +193,7 @@ async function fetchMangaInfo(mangaId) {
         .eq(2)
         .find("ul")
         .find("li")
-        .each((index, li) => {
+        .each((_, li) => {
           let strongTag = $(li)
             .find("strong")
             .text()
@@ -207,7 +207,7 @@ async function fetchMangaInfo(mangaId) {
           if (mangaInfo.hasOwnProperty(strongTag)) {
             let value = $(li)
               .find("a, span")
-              .map((i, el) => $(el).text().trim().replace(/,$/, ""))
+              .map((_, el) => $(el).text().trim().replace(/,$/, ""))
               .get();
 
             value = [...new Set(value)].filter((v) => v !== "");
@@ -228,6 +228,10 @@ async function fetchMangaInfo(mangaId) {
       mangaInfo.description = descriptionSection.length
         ? descriptionSection.text().trim()
         : null;
+      if (mangaInfo.released) {
+        const yMatch = String(mangaInfo.released).match(/\b(19\d\d|20\d\d)\b/);
+        if (yMatch) mangaInfo.year = parseInt(yMatch[1], 10);
+      }
     }
 
     return mangaInfo;
@@ -305,7 +309,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "weebcentral",
-  version: "3.1.0",
+  version: "4.1.0",
   baseUrl,
   headerRules: [
     {

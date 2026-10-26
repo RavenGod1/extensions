@@ -132,7 +132,7 @@ function resolveStatus(status) {
 
 function parsePagination($, defaultPage) {
   let totalPages = 1;
-  $(".pagination a").each((i, el) => {
+  $(".pagination a").each((_, el) => {
     const href = $(el).attr("href");
     if (href) {
       const match = href.match(/page=(\d+)/);
@@ -146,7 +146,7 @@ function parsePagination($, defaultPage) {
   });
 
   let hasNextPage = false;
-  $(".pagination a").each((i, el) => {
+  $(".pagination a").each((_, el) => {
     const rel = $(el).attr("rel");
     if (rel === "next") {
       hasNextPage = true;
@@ -176,7 +176,7 @@ async function SearchAnime(query, filters = {}) {
     const $ = cheerio.load(html);
     const results = [];
 
-    $("div.item").each((i, el) => {
+    $("div.item").each((_, el) => {
       const aTag = $(el).find(".name.d-title");
       const title =
         aTag.text().trim() ||
@@ -264,7 +264,7 @@ async function fetchRecentEpisodes(filters = {}) {
     const $ = cheerio.load(html);
     const results = [];
 
-    $(".item").each((i, el) => {
+    $(".item").each((_, el) => {
       const aTag = $(el).find(".name.d-title").length
         ? $(el).find(".name.d-title").first()
         : $(el).find("a").last();
@@ -338,19 +338,41 @@ async function AnimeInfo(id) {
       $(".synopsis").text().trim() || $(".description").text().trim() || "";
 
     const genres = [];
-    $(".genre a").each((i, el) => {
+    $(".genre a").each((_, el) => {
       genres.push($(el).text().trim());
     });
     animeInfo.genres = genres;
     animeInfo.status = "Unknown";
 
-    $(".info .item").each((i, el) => {
+    $(".info .item").each((_, el) => {
       const text = $(el).text();
       if (text.includes("Status:")) {
         const status = $(el).find(".name").text().trim();
         if (status.includes("Currently Airing")) animeInfo.status = "Ongoing";
         else if (status.includes("Finished Airing"))
           animeInfo.status = "Completed";
+      } else if (text.includes("Type:")) {
+        animeInfo.type = $(el).find(".name").text().trim();
+      } else if (text.includes("Episodes:")) {
+        const ep = parseInt($(el).find(".name").text().trim(), 10);
+        if (!isNaN(ep)) animeInfo.episodes = ep;
+      } else if (text.includes("Premiered:") || text.includes("Season:")) {
+        const sText = $(el).find(".name").text().trim();
+        const sMatch = sText.match(/(Winter|Spring|Summer|Fall)\s*(\d{4})/i);
+        if (sMatch) {
+          animeInfo.season = sMatch[1].toUpperCase();
+          animeInfo.year = parseInt(sMatch[2], 10);
+        }
+      } else if (text.includes("Studios:") || text.includes("Studio:")) {
+        animeInfo.studio = $(el).find(".name").text().trim();
+      } else if (text.includes("Duration:")) {
+        animeInfo.duration = $(el).find(".name").text().trim();
+      } else if (text.includes("Aired:")) {
+        animeInfo.aired = $(el).find(".name").text().trim();
+        if (!animeInfo.year) {
+          const yMatch = animeInfo.aired.match(/\b(19\d\d|20\d\d)\b/);
+          if (yMatch) animeInfo.year = parseInt(yMatch[1], 10);
+        }
       }
     });
     animeInfo.dataId = dataId;
@@ -613,9 +635,7 @@ async function processServer(server) {
 
 async function fetchEpisodeSources(episodeIdStr, category = null) {
   try {
-    const parts = episodeIdStr.split("|");
-    const epId = parts[0];
-    const dataIds = parts[1];
+    const [, dataIds] = episodeIdStr.split("|");
 
     const serverUrl = `${baseUrl}/ajax/server/list?servers=${dataIds}`;
     const serverRes = await global.axios.get(serverUrl, {
@@ -630,7 +650,7 @@ async function fetchEpisodeSources(episodeIdStr, category = null) {
     const servers = [];
     $(
       ".psps-links .item, .psps-links li, .type-server li, [data-type] li, li[data-link-id], li[data-id], .server-item",
-    ).each((i, el) => {
+    ).each((_, el) => {
       const parentWithType = $(el).closest("[data-type]");
       let type =
         $(el).attr("data-type") ||
@@ -730,7 +750,7 @@ async function fetchEpisodeSources(episodeIdStr, category = null) {
 
 module.exports = {
   name: "anikoto",
-  version: "6.1.0",
+  version: "7.1.0",
   baseUrl,
   headerRules: [
     {
@@ -740,7 +760,7 @@ module.exports = {
   ],
   subrequestHeaders: [
     {
-      match: ["megaplay", "imgnex.top", "bcdn"],
+      match: ["megaplay", "imgnex.top", "bcdn", "shiora.top"],
       headers: { Referer: "https://megaplay.buzz/" },
     },
   ],
@@ -752,6 +772,7 @@ module.exports = {
     "vidstream",
     "vidtub",
     "megap.",
+    "shiora.top",
   ],
   SearchAnime,
   AnimeInfo,
