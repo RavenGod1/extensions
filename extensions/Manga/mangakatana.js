@@ -15,10 +15,103 @@ const cheerio = require("cheerio");
 
 const baseUrl = "https://mangakatana.com";
 
+// MangaKatana intermittently answers rapid requests with an empty 200
+// body; retry a couple of times before treating the page as empty.
+async function fetchHtml(url, retries = 2) {
+  for (let attempt = 0; ; attempt++) {
+    const { data } = await global.axios.get(url);
+    if ((data && String(data).length > 0) || attempt >= retries) return data;
+    await new Promise((r) => setTimeout(r, 800));
+  }
+}
+
+// Site genre slugs (from the /genre/ nav). Used to validate filter input
+// and to match items client-side after a keyword search.
+const GENRE_SLUGS = new Set([
+  "4-koma",
+  "action",
+  "adult",
+  "adventure",
+  "artbook",
+  "award-winning",
+  "comedy",
+  "cooking",
+  "doujinshi",
+  "drama",
+  "ecchi",
+  "erotica",
+  "fantasy",
+  "gender-bender",
+  "gore",
+  "harem",
+  "historical",
+  "horror",
+  "isekai",
+  "josei",
+  "loli",
+  "manhua",
+  "manhwa",
+  "martial-arts",
+  "mecha",
+  "medical",
+  "music",
+  "mystery",
+  "one-shot",
+  "overpowered-mc",
+  "psychological",
+  "reincarnation",
+  "romance",
+  "school-life",
+  "sci-fi",
+  "seinen",
+  "sexual-violence",
+  "shota",
+  "shoujo",
+  "shoujo-ai",
+  "shounen",
+  "shounen-ai",
+  "slice-of-life",
+  "sports",
+  "super-power",
+  "supernatural",
+  "survival",
+  "time-travel",
+  "tragedy",
+  "webtoon",
+  "yaoi",
+  "yuri",
+]);
+
+// Accepts either the universal GUI label ("Martial Arts", "School") or a
+// raw site slug ("martial-arts"); returns a slug or "" when unsupported.
+function resolveGenreSlug(genre) {
+  if (genre === undefined || genre === null) return "";
+  const norm = String(genre).trim().toLowerCase().replace(/\s+/g, "-");
+  if (!norm) return "";
+  if (GENRE_SLUGS.has(norm)) return norm;
+  // GUI label variants that differ from the site slug.
+  if (norm === "school") return "school-life";
+  return "";
+}
+
+// GUI Status dropdown sends airing|completed|upcoming; the site only
+// marks items ongoing|completed. "upcoming" matches nothing here.
+function resolveStatus(status) {
+  if (status === undefined || status === null) return "";
+  const s = String(status).trim().toLowerCase().replace(/_/g, "-");
+  if (s === "airing" || s === "ongoing" || s === "currently-airing")
+    return "ongoing";
+  if (s === "completed" || s === "finished") return "completed";
+  if (s === "upcoming" || s === "not-yet-published") return "upcoming";
+  return "";
+}
+
 // Parses a search/latest results grid (div.item blocks) shared by the
 // homepage and search results. Skips the "Hot updates"/"Hot Manga"
 // sidebar widgets, which repeat the same item markup on every page.
-function parseItems($) {
+// Items carry extra `status`/`genreSlugs` fields used for client-side
+// filter matching; callers map down to the public shape when done.
+function parseItems($, detailed = false) {
   const results = [];
 
   $("div.item[data-id]").each((_, el) => {
@@ -41,15 +134,52 @@ function parseItems($) {
     const title = $(el).find("h3.title a").first().text().trim();
 
     if (title && !results.some((r) => r.id === id)) {
-      results.push({
+      const item = {
         id: id,
         title: title,
         image: image,
-      });
+      };
+      if (detailed) {
+        const statusClass = $(el).find("div.status").attr("class") || "";
+        const sm = statusClass.match(/\b(ongoing|completed)\b/);
+        item.status = sm ? sm[1] : "";
+        item.genreSlugs = [];
+        $(el)
+          .find("div.genres a[href*='/genre/']")
+          .each((_, g) => {
+            const gm = ($(g).attr("href") || "").match(/\/genre\/([^/?#]+)/);
+            if (gm && !item.genreSlugs.includes(gm[1])) {
+              item.genreSlugs.push(gm[1]);
+            }
+          });
+      }
+      results.push(item);
     }
   });
 
   return results;
+}
+
+// Applies Discover filters to already-parsed detailed items. Returns the
+// filtered list; unknown/empty filter values are ignored gracefully.
+function applyItemFilters(items, filters = {}) {
+  const genreSlug = resolveGenreSlug(filters?.genre);
+  const status = resolveStatus(filters?.status);
+  if (!genreSlug && !status) return items;
+
+  return items.filter((item) => {
+    if (genreSlug && !item.genreSlugs.includes(genreSlug)) return false;
+    if (status && item.status !== status) return false;
+    return true;
+  });
+}
+
+function toPublicItems(items) {
+  return items.map((item) => ({
+    id: item.id,
+    title: item.title,
+    image: item.image,
+  }));
 }
 
 // Metadata rows on the info page: <div class="d-cell-small label">X:</div>
@@ -67,13 +197,22 @@ function parseInfoRow($, label) {
   return value;
 }
 
-async function latestManga(page = 1) {
+// Latest Manga. Genre filters browse the site's /genre/{slug} listing
+// server-side (the homepage grid cannot be filtered server-side); status
+// is always applied client-side from the per-item div.status class.
+async function latestManga(page = 1, filters = {}) {
   try {
-    const url =
-      page <= 1 ? `${baseUrl}/` : `${baseUrl}/page/${page}`;
-    const { data } = await global.axios.get(url);
+    const genreSlug = resolveGenreSlug(filters?.genre);
+    const url = genreSlug
+      ? page <= 1
+        ? `${baseUrl}/genre/${genreSlug}`
+        : `${baseUrl}/genre/${genreSlug}/page/${page}`
+      : page <= 1
+        ? `${baseUrl}/`
+        : `${baseUrl}/page/${page}`;
+    const data = await fetchHtml(url);
     const $ = cheerio.load(data);
-    const results = parseItems($);
+    const results = applyItemFilters(parseItems($, true), filters);
 
     let totalPages = null;
     $("ul.uk-pagination a.page-numbers").each((_, el) => {
@@ -88,28 +227,31 @@ async function latestManga(page = 1) {
       current_page: page,
       totalPages: totalPages,
       hasNextPage: totalPages ? page < totalPages : results.length > 0,
-      results: results,
+      results: toPublicItems(results),
     };
   } catch (err) {
     throw err;
   }
 }
 
-async function searchManga(query, page = 1) {
+// Search Manga. The site's search is a single page and cannot be combined
+// with a genre URL server-side, so genre/status filters are applied
+// client-side to the returned items.
+async function searchManga(query, page = 1, filters = {}) {
   try {
-    if (!query) return latestManga(page);
+    if (!query) return latestManga(page, filters);
 
     // Server-side search, single page (no pagination on results).
-    const { data } = await global.axios.get(
+    const data = await fetchHtml(
       `${baseUrl}/?search=${encodeURIComponent(query)}&search_by=m_name`,
     );
     const $ = cheerio.load(data);
-    const results = parseItems($);
+    const results = applyItemFilters(parseItems($, true), filters);
 
     return {
       current_page: 1,
       hasNextPage: false,
-      results: results,
+      results: toPublicItems(results),
     };
   } catch (err) {
     throw err;
@@ -265,7 +407,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "mangakatana",
-  version: "1.0.0",
+  version: "1.1.0",
   baseUrl,
   headerRules: [
     {
