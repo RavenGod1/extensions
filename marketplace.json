@@ -17,12 +17,6 @@
       "version": "1.1.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
-    },
-    {
-      "name": "animenexus",
-      "version": "1.0.0",
-      "MinAppVersion": "11.1.0",
-      "disabled": false
     }
   ],
   "Manga": [
@@ -47,7 +41,7 @@
     },
     {
       "name": "mangakatana",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "MinAppVersion": "11.1.0",
       "disabled": false
     },
