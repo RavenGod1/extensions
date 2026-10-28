@@ -40,6 +40,12 @@
       "disabled": false
     },
     {
+      "name": "mangakatana",
+      "version": "1.0.0",
+      "MinAppVersion": "11.1.0",
+      "disabled": false
+    },
+    {
       "name": "mangafire",
       "version": "3.1.0",
       "MinAppVersion": "11.1.0",
