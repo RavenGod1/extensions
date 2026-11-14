@@ -76,7 +76,7 @@ function getBaseVariants(url) {
 
 // GET across mirror variants: first shape-valid response wins. Self-heals
 // around dead mirrors and transient network failures.
-async function resilientGet(url, { headers = {}, timeout = 15000, triesPerMirror = 2 } = {}) {
+async function resilientGet(url, { headers = {}, timeout = 15000, triesPerMirror = 2, valid = null } = {}) {
   let lastErr = null;
   for (const tryUrl of getBaseVariants(url)) {
     const tryBase = (/https:\/\/animekai\.[a-z]+/i.exec(tryUrl) || [])[0] || baseUrl;
@@ -86,12 +86,17 @@ async function resilientGet(url, { headers = {}, timeout = 15000, triesPerMirror
           headers: { Referer: tryBase + "/", "X-Requested-With": "XMLHttpRequest", ...headers },
           timeout,
         });
-        if (res?.status === 200 || res?.data) {
+        if ((res?.status === 200 || res?.data) && (!valid || valid(res))) {
           baseUrl = tryBase;
           markMirrorOk(tryBase);
           return res;
         }
-        lastErr = new Error(`HTTP ${res?.status} from ${tryBase}`);
+        lastErr = new Error(
+          valid && res?.status === 200
+            ? `body failed validation from ${tryBase}`
+            : `HTTP ${res?.status} from ${tryBase}`,
+        );
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
       } catch (err) {
         lastErr = err;
         const retryable =
@@ -320,23 +325,12 @@ async function fetchRecentEpisodes(filters = {}) {
 async function AnimeInfo(id) {
   const animeInfo = { id, title: "" };
   try {
-    const variants = getBaseVariants(`${baseUrl}/anime/${id}`);
-    let html = "";
-    for (const u of variants) {
-      try {
-        const res = await global.axios.get(u, {
-          headers: { Referer: baseUrl + "/" },
-          timeout: 15000,
-        });
-        if (res?.data && typeof res.data === "string" && res.data.length > 5000) {
-          html = res.data;
-          baseUrl = (/https:\/\/animekai\.[a-z]+/i.exec(u) || [])[0] || baseUrl;
-          break;
-        }
-      } catch (_) {}
-    }
-    if (!html) throw new Error("AnimeKai detail page unreachable on all mirrors");
-    const $ = cheerio.load(html);
+    // resilientGet gives detail fetches the XHR header, retries and real error
+    // reporting the list calls already have; the old bare GET swallowed them all.
+    const res = await resilientGet(`${baseUrl}/anime/${id}`, {
+      valid: (r) => typeof r.data === "string" && r.data.length > 5000,
+    });
+    const $ = cheerio.load(res.data);
     const dataId =
       $("#watch-main").attr("data-id") || $("[data-id]").first().attr("data-id") || null;
     animeInfo.title =
@@ -368,8 +362,10 @@ async function AnimeInfo(id) {
     animeInfo.dataId = dataId;
     return animeInfo;
   } catch (error) {
-    console.error("Error fetching data from AnimeKai:", error.message);
-    throw error;
+    // Log the transport-level cause (HTTP status, validation, network) so the
+    // app log pinpoints why the detail page failed instead of a generic line.
+    console.error(`Error fetching data from AnimeKai (${id}):`, error.message);
+    throw new Error("AnimeKai detail page unreachable on all mirrors");
   }
 }
 
@@ -715,7 +711,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.1",
+  version: "1.1.2",
   baseUrl,
   headerRules: [
     {
