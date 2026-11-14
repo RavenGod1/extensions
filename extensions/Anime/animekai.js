@@ -242,6 +242,10 @@ function parseAitemCards($) {
   // Search suggest uses <a class="aitem">, /filter uses <div class="aitem"><a>.
   $(".aitem").each((i, el) => {
     const $el = $(el);
+    // Sidebar widgets (#top-rated-anime) embed .aitem cards that repeat
+    // verbatim on every /filter page; parsing them loops the same titles
+    // into every appended page of the catalogue.
+    if ($el.closest(".sidebar-section, .top-anime").length) return;
     const aTag = $el.is("a") ? $el : $el.find("a").first();
     const title =
       aTag.find(".d-title").text().trim() ||
@@ -711,7 +715,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.2",
+  version: "1.1.3",
   baseUrl,
   headerRules: [
     {
