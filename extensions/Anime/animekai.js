@@ -687,7 +687,15 @@ async function healId({ oldId, malid, title, folderName }) {
     const q = title || folderName;
     if (q) {
       const res = await SearchAnime(String(q).slice(0, 80));
-      const hit = res?.results?.[0];
+      const norm = (s) =>
+        String(s || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      const target = norm(q);
+      // Exact title match only: blindly taking results[0] can swap this
+      // entry for an unrelated anime (seen live: Kaguya -> One Piece).
+      const hit = (res?.results || []).find((r) => norm(r.title) === target);
       if (hit?.id) return { id: hit.id, title: hit.title };
     }
   } catch (_) {}
@@ -715,7 +723,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.3",
+  version: "1.1.4",
   baseUrl,
   headerRules: [
     {
