@@ -16,8 +16,12 @@ function parseCards(html) {
     const href = ($(el).attr("href") || "").split("?")[0];
     const m = href.match(/^\/info\/([^?#]+)$/);
     if (!m) return;
-    const img = $(el).find("img").first();
-    const title = img.attr("alt") || $(el).attr("aria-label") || "";
+    // Search cards nest the img in the link; /trending cards use an empty
+    // overlay link with the poster + title (aria-label) on the parent article.
+    const own = $(el).find("img").first();
+    const img = own.length ? own : $(el).closest("article").find("img").first();
+    const title =
+      own.attr("alt") || $(el).attr("aria-label") || img.attr("alt") || "";
     if (!title || results.some((r) => r.id === m[1])) return;
     results.push({ id: m[1], title, image: img.attr("src") || null });
   });
@@ -39,7 +43,9 @@ async function SearchAnime(query, filters = {}) {
 }
 
 async function fetchRecentEpisodes(filters = {}) {
-  const { data: html } = await axios.get(`${baseUrl}/`);
+  // The homepage is a client-rendered landing page (SSR yields ~1 card);
+  // /trending is the route that server-renders the catalogue grid.
+  const { data: html } = await axios.get(`${baseUrl}/trending`);
   return { currentPage: 1, hasNextPage: false, totalPages: 1, results: parseCards(html) };
 }
 

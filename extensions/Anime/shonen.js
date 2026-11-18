@@ -145,7 +145,8 @@ async function fetchEpisodeSources(episodeId, category = null) {
       return {
         sources: [
           {
-            url,
+            // API sometimes rotates to a relative proxy path (/api/v1/...)
+            url: abs(url),
             quality: "default",
             name: `Shonen ${language}`,
             type: language,
