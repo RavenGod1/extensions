@@ -46,7 +46,15 @@ function parseCards(html) {
     const m = href.match(/^\/(movie|tv)\/(\d+)$/);
     if (!m) return;
     const img = $(el).find("img").first();
-    const title = img.attr("alt") || "";
+    // Cards carry the title in aria-label ("4. VisionQuest" — strip the
+    // rank prefix); img alt is empty on this site.
+    const title = (
+      $(el).attr("aria-label") ||
+      img.attr("alt") ||
+      ""
+    )
+      .replace(/^\d+\.\s*/, "")
+      .trim();
     if (!title || results.some((r) => r.id === mediaId(m[1], m[2]))) return;
     results.push({
       id: mediaId(m[1], m[2]),

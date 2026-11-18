@@ -23,16 +23,30 @@ function slugFromHref(href) {
 function parseCards(html) {
   const $ = cheerio.load(html);
   const results = [];
-  const scope = $(".bge").length ? $(".bge") : $("body");
+  // Homepage uses article.ls4 blocks (title in h4, cover via data-src
+  // thumbnail); the legacy .bge markup is kept as a fallback.
+  const scope = $("article.ls4").length
+    ? $("article.ls4")
+    : $(".bge").length
+      ? $(".bge")
+      : $("body");
   scope.each((_, el) => {
     const root = $(el);
-    const a = root.find("a[href*='/manga/']").first();
+    const a = root.find("h4 a[href*='/manga/'], a[href*='/manga/']").first();
     const id = slugFromHref(a.attr("href") || "");
     if (!id || results.some((r) => r.id === id)) return;
     const img = root.find("img").first();
-    const title = img.attr("alt") || a.attr("title") || "";
+    const title =
+      (img.attr("alt") || "").replace(/^Baca\s+/i, "") ||
+      (a.attr("title") || "").replace(/^Baca\s+Komik\s+/i, "") ||
+      root.find("h4").text().trim() ||
+      a.text().trim();
     if (!title) return;
-    results.push({ id, title, image: img.attr("src") || null });
+    results.push({
+      id,
+      title,
+      image: img.attr("data-src") || img.attr("src") || null,
+    });
   });
   return results;
 }
@@ -45,7 +59,9 @@ async function searchManga(query, page = 1, filters = {}) {
 }
 
 async function latestManga(page = 1, filters = {}) {
-  const { data: html } = await axios.get(`${searchBase}/`);
+  // api.komiku.org root now returns an empty 200 body; the homepage's
+  // "Baru Ditambahkan" (article.ls4) list is the latest-manga source.
+  const { data: html } = await axios.get(`${baseUrl}/`);
   return { current_page: 1, hasNextPage: false, results: parseCards(html) };
 }
 
