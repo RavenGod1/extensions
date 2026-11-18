@@ -7,6 +7,7 @@ const cheerio = require("cheerio");
 const axios = global.axios || require("axios");
 
 const baseUrl = "https://www.mangaworld.mx";
+const PAGE_SIZE = 16; // entries per /archive page
 
 function mangaIdFromHref(href) {
   try {
@@ -53,8 +54,24 @@ async function searchManga(query, page = 1, filters = {}) {
 }
 
 async function latestManga(page = 1, filters = {}) {
-  const { data: html } = await axios.get(`${baseUrl}/archive`);
-  return { current_page: 1, hasNextPage: false, results: parseEntries(html) };
+  // /archive?page=N returns a disjoint set; the total comes from the
+  // "N risultati trovati" counter (16 entries per page).
+  const p = Math.max(1, Number(page || 1));
+  const { data: html } = await axios.get(`${baseUrl}/archive`, {
+    params: { page: p },
+  });
+  const results = parseEntries(html);
+  const total = parseInt(
+    (html.match(/([0-9]+) risultati trovati/i) || [])[1] || "0",
+    10,
+  );
+  return {
+    current_page: p,
+    currentPage: p,
+    totalPages: total ? Math.ceil(total / PAGE_SIZE) : p,
+    hasNextPage: results.length > 0,
+    results,
+  };
 }
 
 // Info grid rows are "<span>Stato: </span> <a>...</a>" pairs.
@@ -144,7 +161,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "mangaworld",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

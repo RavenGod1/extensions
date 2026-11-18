@@ -74,8 +74,23 @@ async function SearchMovies(query, filters = {}) {
 }
 
 async function latestMovies(filters = {}) {
-  const { data: html } = await axios.get(`${baseUrl}/`);
-  return { currentPage: 1, hasNextPage: false, totalPages: 1, results: parseCards(html) };
+  // /api/browse is the paginated catalogue (32 cards/page) and returns the
+  // rendered card HTML plus the page count. Past the last page it answers with
+  // an empty card list (sometimes a gateway error), both mapped to "no next".
+  const page = Math.max(1, Number(filters?.page || 1));
+  let data = null;
+  for (let attempt = 0; attempt < 2 && !data; attempt++) {
+    try {
+      data = (await axios.get(`${baseUrl}/api/browse`, { params: { page } })).data;
+    } catch (_) {}
+  }
+  const results = data ? parseCards(data?.html || "") : [];
+  return {
+    currentPage: data?.page || page,
+    totalPages: results.length ? data?.totalPages : page - 1,
+    hasNextPage: results.length > 0,
+    results,
+  };
 }
 
 async function MovieInfo(mediaIdRaw) {
@@ -218,7 +233,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "reelix",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

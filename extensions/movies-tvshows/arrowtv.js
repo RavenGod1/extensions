@@ -66,6 +66,26 @@ function parseCards(html) {
   return results;
 }
 
+function parseDiscover(items) {
+  return (items || [])
+    .filter((x) => x && x.id)
+    .map((x) => {
+      const type = x.media_type === "tv" ? "tv" : "movie";
+      return {
+        id: mediaId(type, x.id),
+        // TV rows carry "name"/"original_name" instead of "title".
+        title: x.title || x.name || x.original_name || "",
+        image: x.poster_path
+          ? `https://image.tmdb.org/t/p/w500${x.poster_path}`
+          : null,
+        year: (x.release_date || x.first_air_date || "").slice(0, 4) || null,
+        rating: x.vote_average ? Number(x.vote_average.toFixed(1)) : null,
+        type: type === "tv" ? "TV" : "Movie",
+      };
+    })
+    .filter((x) => x.title);
+}
+
 async function SearchMovies(query, filters = {}) {
   const { data: html } = await axios.get(`${baseUrl}/search`, {
     params: { q: query },
@@ -74,8 +94,30 @@ async function SearchMovies(query, filters = {}) {
 }
 
 async function latestMovies(filters = {}) {
-  const { data: html } = await axios.get(`${baseUrl}/`);
-  return { currentPage: 1, hasNextPage: false, totalPages: 1, results: parseCards(html) };
+  // /api/discover paginates for real (20/page, total_pages 500). Movies and
+  // shows live in separate queries, so both are merged into one page.
+  const page = Math.max(1, Number(filters?.page || 1));
+  let movies = null;
+  let shows = null;
+  try {
+    [movies, shows] = await Promise.all([
+      axios.get(`${baseUrl}/api/discover`, { params: { type: "movie", page } }),
+      axios.get(`${baseUrl}/api/discover`, { params: { type: "tv", page } }),
+    ]);
+  } catch (_) {}
+  const results = [
+    ...parseDiscover(movies?.data?.results),
+    ...parseDiscover(shows?.data?.results),
+  ];
+  return {
+    currentPage: page,
+    totalPages: Math.min(
+      movies?.data?.total_pages || 1,
+      shows?.data?.total_pages || 1,
+    ),
+    hasNextPage: results.length > 0,
+    results,
+  };
 }
 
 async function MovieInfo(mediaIdRaw) {
@@ -220,7 +262,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "arrowtv",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

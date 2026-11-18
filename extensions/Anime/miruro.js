@@ -45,8 +45,18 @@ async function SearchAnime(query, filters = {}) {
 async function fetchRecentEpisodes(filters = {}) {
   // The homepage is a client-rendered landing page (SSR yields ~1 card);
   // /trending is the route that server-renders the catalogue grid.
-  const { data: html } = await axios.get(`${baseUrl}/trending`);
-  return { currentPage: 1, hasNextPage: false, totalPages: 1, results: parseCards(html) };
+  // ?page=N returns a disjoint set; pages past the end answer 400.
+  const page = Math.max(1, Number(filters?.page || 1));
+  let results = [];
+  try {
+    const { data: html } = await axios.get(`${baseUrl}/trending`, {
+      params: { page },
+    });
+    results = parseCards(html);
+  } catch (err) {
+    if (err?.response?.status !== 400 && err?.response?.status !== 404) throw err;
+  }
+  return { currentPage: page, hasNextPage: results.length > 0, results };
 }
 
 function parseInfo(html, id) {
@@ -186,7 +196,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "miruro",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

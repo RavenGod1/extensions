@@ -45,10 +45,19 @@ async function SearchAnime(query, filters = {}) {
 }
 
 async function fetchRecentEpisodes(filters = {}) {
-  const { data: html } = await axios.get(`${baseUrl}/browse`, {
-    params: { sort: "TRENDING_DESC" },
-  });
-  return { currentPage: 1, hasNextPage: false, totalPages: 1, results: parseCards(html) };
+  // /browse paginates for real: page 2+ returns a different set, and pages
+  // past the end answer 404.
+  const page = Math.max(1, Number(filters?.page || 1));
+  let results = [];
+  try {
+    const { data: html } = await axios.get(`${baseUrl}/browse`, {
+      params: { sort: "TRENDING_DESC", page },
+    });
+    results = parseCards(html);
+  } catch (err) {
+    if (err?.response?.status !== 404) throw err;
+  }
+  return { currentPage: page, hasNextPage: results.length > 0, results };
 }
 
 async function AnimeInfo(id) {
@@ -163,7 +172,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "shonen",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

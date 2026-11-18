@@ -8,13 +8,31 @@
     },
     {
       "name": "shonen",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
     {
       "name": "miruro",
-      "version": "1.0.1",
+      "version": "1.0.2",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "animesuge",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "anivault",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "anime7",
+      "version": "1.0.0",
       "MinAppVersion": "11.0.0",
       "disabled": false
     }
@@ -28,7 +46,7 @@
     },
     {
       "name": "mangaworld",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
@@ -42,14 +60,26 @@
   "movies-tvshows": [
     {
       "name": "arrowtv",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.0.0",
       "disabled": false
     },
     {
       "name": "reelix",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.0.0",
+      "disabled": false
+    },
+    {
+      "name": "vegamovies",
+      "version": "1.0.0",
+      "MinAppVersion": "12.0.8",
+      "disabled": false
+    },
+    {
+      "name": "uhdmovies",
+      "version": "1.0.0",
+      "MinAppVersion": "12.0.8",
       "disabled": false
     }
   ]
