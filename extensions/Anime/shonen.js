@@ -163,7 +163,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "shonen",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {

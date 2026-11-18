@@ -8,13 +8,13 @@
     },
     {
       "name": "shonen",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
     {
       "name": "miruro",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     }
@@ -28,13 +28,13 @@
     },
     {
       "name": "mangaworld",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
     {
       "name": "komiku",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     }
@@ -42,13 +42,13 @@
   "movies-tvshows": [
     {
       "name": "arrowtv",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "12.0.0",
       "disabled": false
     },
     {
       "name": "reelix",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "12.0.0",
       "disabled": false
     }

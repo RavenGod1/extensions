@@ -218,7 +218,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "reelix",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {
