@@ -7,12 +7,6 @@
       "disabled": false
     },
     {
-      "name": "shonen",
-      "version": "1.0.2",
-      "MinAppVersion": "11.0.0",
-      "disabled": false
-    },
-    {
       "name": "miruro",
       "version": "1.0.2",
       "MinAppVersion": "11.0.0",
@@ -20,18 +14,6 @@
     },
     {
       "name": "animesuge",
-      "version": "1.0.0",
-      "MinAppVersion": "11.0.0",
-      "disabled": false
-    },
-    {
-      "name": "anivault",
-      "version": "1.0.0",
-      "MinAppVersion": "11.0.0",
-      "disabled": false
-    },
-    {
-      "name": "anime7",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
       "disabled": false
@@ -55,21 +37,9 @@
       "version": "1.0.2",
       "MinAppVersion": "11.0.0",
       "disabled": false
-    },
-    {
-      "name": "komiku",
-      "version": "1.0.1",
-      "MinAppVersion": "11.0.0",
-      "disabled": false
     }
   ],
   "movies-tvshows": [
-    {
-      "name": "arrowtv",
-      "version": "1.0.2",
-      "MinAppVersion": "12.0.0",
-      "disabled": false
-    },
     {
       "name": "reelix",
       "version": "1.0.2",
