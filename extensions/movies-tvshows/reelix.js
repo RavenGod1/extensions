@@ -106,6 +106,9 @@ async function MovieInfo(mediaIdRaw) {
     data.poster_path || (data.images && data.images.posters && data.images.posters[0]
       ? data.images.posters[0].file_path
       : null);
+  const audioLangs = (data.spoken_languages || [])
+    .map((l) => l.english_name || l.name)
+    .filter(Boolean);
 
   return {
     id: mediaIdRaw,
@@ -118,6 +121,7 @@ async function MovieInfo(mediaIdRaw) {
     type: type === "tv" ? "TV" : "Movie",
     rating: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
     runtime: data.runtime || null,
+    audioLangs,
     totalEpisodes: type === "tv" ? data.number_of_episodes || null : null,
     seasons:
       type === "tv"
@@ -233,7 +237,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "reelix",
-  version: "1.0.2",
+  version: "1.0.3",
   baseUrl,
   headerRules: [
     {

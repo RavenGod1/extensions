@@ -42,19 +42,19 @@
   "movies-tvshows": [
     {
       "name": "reelix",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "MinAppVersion": "12.0.0",
       "disabled": false
     },
     {
       "name": "vegamovies",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.0.8",
       "disabled": false
     },
     {
       "name": "uhdmovies",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.0.8",
       "disabled": false
     }

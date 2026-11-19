@@ -81,6 +81,25 @@ function cleanTitle(raw) {
   return title;
 }
 
+// "Download X (2026) Dual Audio {Hindi-English} 2160p" -> ["Hindi","English"]
+function parseAudioLangs(title) {
+  const LANGS = [
+    "hindi","english","tamil","telugu","malayalam","kannada","punjabi",
+    "bengali","marathi","urdu","gujarati","french","spanish","german",
+    "japanese","korean","arabic","chinese","russian","portuguese",
+  ];
+  const bracket = String(title || "").match(/[{[]([^}\]]+)[\]}]/);
+  if (!bracket) return [];
+  const foundLangs = [];
+  for (const tok of bracket[1].split(/[\s\-&,/|]+/)) {
+    const hit = LANGS.find((l) => l === tok.toLowerCase());
+    if (hit && !foundLangs.some((f) => f.toLowerCase() === hit)) {
+      foundLangs.push(tok);
+    }
+  }
+  return foundLangs;
+}
+
 // TMDB's search does not like typographic punctuation.
 function normalizeForSearch(text) {
   return String(text || "")
@@ -187,6 +206,9 @@ async function resolveMedia(rawId) {
     html = typeof data === "string" ? data : "";
   } catch (_) {}
 
+  const heading = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/i);
+  const rawTitle = heading ? heading[1].replace(/<[^>]+>/g, "") : "";
+
   let found = null;
   const imdb =
     html.match(/imdb\.com\/title\/(tt\d{7,8})/i) ||
@@ -203,8 +225,6 @@ async function resolveMedia(rawId) {
     } catch (_) {}
   }
   if (!found) {
-    const heading = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/i);
-    const rawTitle = heading ? heading[1].replace(/<[^>]+>/g, "") : "";
     const title = cleanTitle(rawTitle) || titleFromSlug(slug).title;
     const year = extractYear(rawTitle) || titleFromSlug(slug).year;
     try {
@@ -212,6 +232,8 @@ async function resolveMedia(rawId) {
     } catch (_) {}
   }
   if (!found) found = { type: "movie", id: null };
+  const postLangs = parseAudioLangs(rawTitle);
+  if (postLangs.length) found.audioLangs = postLangs;
   mediaCache.set(id, found);
   return found;
 }
@@ -292,7 +314,8 @@ async function SearchMovies(query, filters = {}) {
 }
 
 async function MovieInfo(rawId) {
-  const { type, id } = await resolveMedia(rawId);
+  const resolved = await resolveMedia(rawId);
+  const { type, id } = resolved;
   if (!id) {
     return {
       id: rawId,
@@ -307,6 +330,7 @@ async function MovieInfo(rawId) {
       runtime: null,
       totalEpisodes: null,
       episodes: [],
+      audioLangs: resolved.audioLangs || [],
     };
   }
   const data = await tmdb(`/${type}/${id}`, { append_to_response: "credits,images" });
@@ -318,6 +342,13 @@ async function MovieInfo(rawId) {
     (data.images && data.images.posters && data.images.posters[0]
       ? data.images.posters[0].file_path
       : null);
+  // Post heading wins ("Dual Audio {Hindi-English}"); TMDB spoken languages otherwise.
+  const audioLangs =
+    Array.isArray(resolved.audioLangs) && resolved.audioLangs.length
+      ? resolved.audioLangs
+      : (data.spoken_languages || [])
+          .map((l) => l.english_name || l.name)
+          .filter(Boolean);
 
   const info = {
     id: rawId,
@@ -330,6 +361,7 @@ async function MovieInfo(rawId) {
     type: type === "tv" ? "TV" : "Movie",
     rating: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
     runtime: data.runtime || null,
+    audioLangs,
     totalEpisodes: type === "tv" ? data.number_of_episodes || null : null,
     seasons:
       type === "tv"
@@ -466,7 +498,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "vegamovies",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {
