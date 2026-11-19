@@ -59,6 +59,20 @@ async function fetchRecentEpisodes(filters = {}) {
   return { currentPage: page, hasNextPage: results.length > 0, results };
 }
 
+// The info page carries the per-track episode counts
+// (episode_counts:{raw:8,sub:8,dub:5}) — that is the only dub signal the
+// site exposes outside the watch page.
+function parseEpisodeCounts(html) {
+  const m = String(html || "").match(/episode_counts:\{([^}]*)\}/);
+  if (!m) return { sub: null, dub: null };
+  const sub = m[1].match(/sub:(\d+)/);
+  const dub = m[1].match(/dub:(\d+)/);
+  return {
+    sub: sub ? Number(sub[1]) : null,
+    dub: dub ? Number(dub[1]) : null,
+  };
+}
+
 function parseInfo(html, id) {
   const $ = cheerio.load(html);
   let ld = null;
@@ -98,6 +112,10 @@ function parseInfo(html, id) {
   const description =
     (ld && ld.description) || pick(/description\\?":\\?"([^"\\]{30,})/) || "";
 
+  const counts = parseEpisodeCounts(html);
+  const hasSub = counts.sub != null ? counts.sub > 0 : null;
+  const hasDub = counts.dub != null ? counts.dub > 0 : null;
+
   return {
     id,
     title: $("h1").first().text().trim() || (ld && ld.name) || id,
@@ -117,6 +135,10 @@ function parseInfo(html, id) {
     season: seasonRaw
       ? seasonRaw.charAt(0) + seasonRaw.slice(1).toLowerCase()
       : null,
+    hasSub: hasSub ?? undefined,
+    hasDub: hasDub ?? undefined,
+    subOrDub:
+      hasSub && hasDub ? "both" : hasDub ? "dub" : hasSub ? "sub" : undefined,
   };
 }
 
@@ -126,15 +148,26 @@ async function AnimeInfo(id) {
 
 async function fetchEpisode(id, page = 1) {
   let total = 0;
+  let counts = { sub: null, dub: null };
   try {
     const html = await fetchInfoPage(id);
     const m = html.match(/\bepisode_count:(\d+)/);
     total = m ? parseInt(m[1], 10) : 0;
+    counts = parseEpisodeCounts(html);
   } catch (_) {}
   if (!total) return { episodes: [], totalPages: 0, total: 0, currentPage: page };
+  const langs = [];
+  if (counts.sub == null || counts.sub > 0) langs.push("sub");
+  if (counts.dub != null && counts.dub > 0) langs.push("dub");
   const episodes = [];
   for (let n = 1; n <= total; n++) {
-    episodes.push({ id: `${id}:${n}`, number: n, title: `Episode ${n}`, duration: null });
+    episodes.push({
+      id: `${id}:${n}`,
+      number: n,
+      title: `Episode ${n}`,
+      duration: null,
+      langs: langs.length ? [...langs] : ["sub"],
+    });
   }
   return { episodes, totalPages: 1, total, currentPage: 1 };
 }
@@ -196,7 +229,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "miruro",
-  version: "1.0.2",
+  version: "1.0.3",
   baseUrl,
   headerRules: [
     {

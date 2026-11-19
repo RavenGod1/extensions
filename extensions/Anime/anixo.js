@@ -128,6 +128,16 @@ async function AnimeInfo(id) {
 
   const cover = detail.cover_image || {};
   const subDub = detail.sub_dub || {};
+  // Episode counts per track: the CDN detail uses sub_dub, the DB detail uses
+  // anikoto_sub/anikoto_dub. Both tell the app whether a DUB exists.
+  const rawSub = subDub.sub ?? detail.anikoto_sub ?? detail.subbed;
+  const rawDub = subDub.dub ?? detail.anikoto_dub ?? detail.dubbed;
+  const subCount = Number(rawSub);
+  const dubCount = Number(rawDub);
+  const hasSub =
+    rawSub != null && Number.isFinite(subCount) ? subCount > 0 : null;
+  const hasDub =
+    rawDub != null && Number.isFinite(dubCount) ? dubCount > 0 : null;
   return {
     id: String(id),
     title:
@@ -150,6 +160,10 @@ async function AnimeInfo(id) {
     type: detail.format || "TV",
     totalEpisodes:
       detail.episodes_total || subDub.sub || detail.episodes || detail.next_air_ep || null,
+    hasSub: hasSub ?? undefined,
+    hasDub: hasDub ?? undefined,
+    subOrDub:
+      hasSub && hasDub ? "both" : hasDub ? "dub" : hasSub ? "sub" : undefined,
   };
 }
 
@@ -272,7 +286,7 @@ async function fetchRecentEpisodes(filters = {}) {
 
 module.exports = {
   name: "anixo",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     { match: ["anixo.buzz"], headers: { Referer: `${baseUrl}/` } },

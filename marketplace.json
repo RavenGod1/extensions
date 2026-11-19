@@ -8,19 +8,19 @@
     },
     {
       "name": "miruro",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
     {
       "name": "animesuge",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     },
     {
       "name": "anixo",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
     }

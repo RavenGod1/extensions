@@ -127,11 +127,17 @@ async function fetchEpisodeList(animeId) {
   $("a[data-slug]").each((i, el) => {
     const slug = $(el).attr("data-slug");
     if (!slug) return;
+    // The list marks every track an episode is available in, so the app can
+    // offer the DUB filter instead of showing a sub-only list.
+    const langs = [];
+    if ($(el).attr("data-sub") === "1") langs.push("sub");
+    if ($(el).attr("data-dub") === "1") langs.push("dub");
     episodes.push({
       id: `${animeId}:${slug}`,
       number: i + 1,
       title: $(el).attr("data-num") || `Episode ${i + 1}`,
       duration: null,
+      langs,
     });
   });
   return { $, episodes };
@@ -143,9 +149,17 @@ async function AnimeInfo(id) {
   const year = Number((premiered.match(/\d{4}/) || [])[0]) || null;
   const season = premiered.replace(/\d{4}/, "").trim() || null;
   let totalEpisodes = null;
+  let hasSub = null;
+  let hasDub = null;
   if (animeId) {
     try {
-      totalEpisodes = (await fetchEpisodeList(animeId)).episodes.length || null;
+      const { episodes } = await fetchEpisodeList(animeId);
+      totalEpisodes = episodes.length || null;
+      const withLangs = episodes.filter((e) => e.langs && e.langs.length);
+      if (withLangs.length) {
+        hasSub = withLangs.some((e) => e.langs.includes("sub"));
+        hasDub = withLangs.some((e) => e.langs.includes("dub"));
+      }
     } catch (_) {}
   }
   return {
@@ -169,6 +183,10 @@ async function AnimeInfo(id) {
     season: season ? season.charAt(0) + season.slice(1).toLowerCase() : null,
     duration: meta.Duration || null,
     totalEpisodes,
+    hasSub: hasSub ?? undefined,
+    hasDub: hasDub ?? undefined,
+    subOrDub:
+      hasSub && hasDub ? "both" : hasDub ? "dub" : hasSub ? "sub" : undefined,
   };
 }
 
@@ -285,7 +303,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "animesuge",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     { match: ["animesuge.cz"], headers: { Referer: `${baseUrl}/` } },
