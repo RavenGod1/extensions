@@ -26,9 +26,23 @@ let prevPage = null;
 let prevIds = new Set();
 
 function tmdb(path, params = {}) {
-  return axios
-    .get(`${TMDB_API}${path}`, { params: { api_key: TMDB_KEY, ...params } })
-    .then((r) => r.data);
+  return (async () => {
+    // TMDB rate-limits bursts (429); a short pause and one more try is enough.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await axios.get(`${TMDB_API}${path}`, {
+          params: { api_key: TMDB_KEY, ...params },
+        });
+        return r.data;
+      } catch (e) {
+        // 429, socket resets and 5xx are transient; wait and try again.
+        const status = e.response && e.response.status;
+        const retryable = !status || status === 429 || status >= 500;
+        if (attempt >= 3 || !retryable) throw e;
+        await new Promise((resolve) => setTimeout(resolve, 600 + attempt * 700));
+      }
+    }
+  })();
 }
 
 function headerValue(headers, name) {
@@ -61,9 +75,19 @@ function cleanTitle(raw) {
     .replace(/\s+/g, " ")
     .trim();
   title = title.split(/\s*[{|(]/)[0].trim();
+  title = title.replace(/^\[[^\]]{1,12}\]\s*/, ""); // leading tags like "[18+]"
   title = title.replace(/\s*\[.*$/, "").trim();
   title = title.replace(/\s*\b(19|20)\d{2}\b\s*$/, "").trim();
   return title;
+}
+
+// TMDB's search does not like typographic punctuation.
+function normalizeForSearch(text) {
+  return String(text || "")
+    .replace(/[’‘`]/g, "'")
+    .replace(/[–—]/g, "-")
+    .replace(/\s+aka\s+.*$/i, "")
+    .trim();
 }
 
 function extractYear(raw) {
@@ -122,24 +146,30 @@ function titleFromSlug(slug) {
   return { title, year: year ? Number(year[0]) : null };
 }
 
-async function findOnTmdb(title, year) {
+async function findOnTmdb(title, year, type) {
   if (!title) return null;
-  const data = await tmdb("/search/multi", { query: title, include_adult: "false" });
-  const hits = (data.results || []).filter(
-    (x) => x && (x.media_type === "movie" || x.media_type === "tv"),
-  );
-  if (!hits.length) return null;
-  const withYear = year
-    ? hits.find((x) => {
-        const date = x.release_date || x.first_air_date || "";
-        return date.slice(0, 4) === String(year);
-      })
-    : null;
-  const hit = withYear || hits[0];
-  return {
-    type: hit.media_type === "tv" ? "tv" : "movie",
-    id: hit.id,
-  };
+  const query = normalizeForSearch(title);
+  const paths =
+    type === "tv"
+      ? ["/search/tv", "/search/movie"]
+      : ["/search/movie", "/search/tv"];
+  for (const path of paths) {
+    const data = await tmdb(path, { query, include_adult: "false" });
+    const hits = data.results || [];
+    if (!hits.length) continue;
+    const withYear = year
+      ? hits.find((x) => {
+          const date = x.release_date || x.first_air_date || "";
+          return date.slice(0, 4) === String(year);
+        })
+      : null;
+    const hit = withYear || hits[0];
+    return {
+      type: path === "/search/tv" ? "tv" : "movie",
+      id: hit.id,
+    };
+  }
+  return null;
 }
 
 // Listing ids are post slugs; TMDB ids arrive as "movie:<id>" / "tv:<id>".
@@ -164,10 +194,11 @@ async function resolveMedia(rawId) {
   if (imdb) {
     try {
       const data = await tmdb("/find/" + imdb[1], { external_source: "imdb_id" });
-      if (data.movie_ids && data.movie_ids.length) {
-        found = { type: "movie", id: data.movie_ids[0] };
-      } else if (data.tv_ids && data.tv_ids.length) {
-        found = { type: "tv", id: data.tv_ids[0] };
+      // /find answers with movie_results / tv_results (not *_ids).
+      if (data.movie_results && data.movie_results.length) {
+        found = { type: "movie", id: data.movie_results[0].id };
+      } else if (data.tv_results && data.tv_results.length) {
+        found = { type: "tv", id: data.tv_results[0].id };
       }
     } catch (_) {}
   }
@@ -177,7 +208,7 @@ async function resolveMedia(rawId) {
     const title = cleanTitle(rawTitle) || titleFromSlug(slug).title;
     const year = extractYear(rawTitle) || titleFromSlug(slug).year;
     try {
-      found = await findOnTmdb(title, year);
+      found = await findOnTmdb(title, year, isSeries(rawTitle) ? "tv" : "movie");
     } catch (_) {}
   }
   if (!found) found = { type: "movie", id: null };
@@ -435,7 +466,7 @@ async function fetchMovieSources(episodeId, category = null) {
 
 module.exports = {
   name: "vegamovies",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {

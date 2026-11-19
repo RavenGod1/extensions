@@ -78,13 +78,13 @@
     },
     {
       "name": "vegamovies",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "12.0.8",
       "disabled": false
     },
     {
       "name": "uhdmovies",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "12.0.8",
       "disabled": false
     }
