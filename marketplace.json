@@ -4,36 +4,42 @@
       "name": "animekai",
       "version": "1.1.4",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Sub & Dub", "Hardsub"],
       "disabled": false
     },
     {
       "name": "anixo",
       "version": "1.0.1",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Sub & Dub", "HLS"],
       "disabled": false
     },
     {
       "name": "animedubhindi",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Hindi Dub"],
       "disabled": false
     },
     {
       "name": "gokuhd",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Hindi Dub", "HD"],
       "disabled": false
     },
     {
       "name": "anixohindi",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Hindi Dub"],
       "disabled": false
     },
     {
       "name": "animeworldindia",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Multi Audio", "HLS"],
       "disabled": false
     }
   ],
@@ -42,12 +48,14 @@
       "name": "mangakatana",
       "version": "1.1.0",
       "MinAppVersion": "11.1.0",
+      "statuses": ["English"],
       "disabled": false
     },
     {
       "name": "mangaworld",
       "version": "1.0.2",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Italian"],
       "disabled": false
     }
   ],
@@ -56,18 +64,21 @@
       "name": "reelix",
       "version": "1.0.3",
       "MinAppVersion": "12.0.0",
+      "statuses": ["Movies & TV Shows"],
       "disabled": false
     },
     {
       "name": "vegamovies",
       "version": "1.0.2",
       "MinAppVersion": "12.0.8",
+      "statuses": ["Movies & TV Shows", "Multi Audio"],
       "disabled": false
     },
     {
       "name": "uhdmovies",
       "version": "1.0.2",
       "MinAppVersion": "12.0.8",
+      "statuses": ["Movies & TV Shows", "Multi Audio"],
       "disabled": false
     }
   ]

@@ -66,6 +66,7 @@ Placed at the root of your repository, `marketplace.json` tells StrawVerse what 
       "name": "mysite",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
+      "statuses": ["Hindi Dub", "HD"],
       "disabled": false
     }
   ],
@@ -87,7 +88,10 @@ Placed at the root of your repository, `marketplace.json` tells StrawVerse what 
 | `name`          | string  | Yes      | Internal identifier of the extension (must match the filename without `.js`).              |
 | `version`       | string  | Yes      | Semver version (e.g., `"1.0.0"`). Increasing this prompts users with an **Update** button. |
 | `MinAppVersion` | string  | No       | Minimum StrawVerse version supported (e.g., `"11.0.0"`).                                   |
+| `statuses`      | array   | No       | Short capability/status labels shown as badges on the extension card (up to 6 labels).    |
 | `disabled`      | boolean | No       | Set to `true` if the scraper is broken or undergoing maintenance.                          |
+
+The optional `statuses` field is creator-controlled and is not copied into the installed extension. Use it for short, user-facing labels such as `"Hindi Dub"`, `"Sub & Dub"`, `"HD"`, or `"HLS"`.
 
 Icons are automatically resolved from your repository's `ico/` directory (e.g. `ico/<name>.ico`).
 
