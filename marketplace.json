@@ -23,6 +23,30 @@
       "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "disabled": false
+    },
+    {
+      "name": "animedubhindi",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "gokuhd",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "anixohindi",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
+    },
+    {
+      "name": "animeworldindia",
+      "version": "1.0.0",
+      "MinAppVersion": "11.0.0",
+      "disabled": false
     }
   ],
   "Manga": [
