@@ -15,13 +15,6 @@
       "disabled": false
     },
     {
-      "name": "gokuhd",
-      "version": "1.0.1",
-      "MinAppVersion": "11.0.0",
-      "statuses": ["Hindi Dub", "HD"],
-      "disabled": false
-    },
-    {
       "name": "anixohindi",
       "version": "1.0.0",
       "MinAppVersion": "11.0.0",
@@ -49,15 +42,6 @@
       "version": "1.0.2",
       "MinAppVersion": "11.0.0",
       "statuses": ["Italian"],
-      "disabled": false
-    }
-  ],
-  "movies-tvshows": [
-    {
-      "name": "vegamovies",
-      "version": "1.0.2",
-      "MinAppVersion": "12.0.8",
-      "statuses": ["Movies & TV Shows", "Multi Audio"],
       "disabled": false
     }
   ]
