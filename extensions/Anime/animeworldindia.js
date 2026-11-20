@@ -234,9 +234,17 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
-  headerRules: [{ match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } }],
+  headerRules: [
+    { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },
+    {
+      match: ["zephyrix.org", "zn-grid"],
+      headers: { Referer: `${playerHost}/`, Origin: playerHost },
+    },
+  ],
+  bypassDomains: ["zephyrix.org", "zn-grid"],
+  cookieDomains: ["zephyrix.org", "zn-grid"],
   SearchAnime,
   AnimeInfo,
   fetchEpisode,
