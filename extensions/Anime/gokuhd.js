@@ -218,19 +218,6 @@ function parseSearchFeed(rss) {
   return results;
 }
 
-async function fetchPoster(slug) {
-  try {
-    const { data } = await axios.get(`${baseUrl}/${slug}/`, {
-      headers: { Referer: `${baseUrl}/` },
-    });
-    const html = String(data || "");
-    const image = (html.match(/property=["']og:image["']\s+content=["']([^"']+)/i) || [])[1];
-    return image || null;
-  } catch (_) {
-    return null;
-  }
-}
-
 async function SearchAnime(query, filters = {}) {
   const q = String(query || "").trim();
   if (!q) return fetchRecentEpisodes(filters);
@@ -242,13 +229,9 @@ async function SearchAnime(query, filters = {}) {
     );
     rss = typeof data === "string" ? data : "";
   } catch (_) {}
+  // The RSS feed has no thumbnails. Do not fetch each post page just to fill
+  // card artwork; details and artwork are loaded after the user selects a title.
   const results = parseSearchFeed(rss);
-  // The feed has no thumbnails; the post pages do.
-  await Promise.all(
-    results.slice(0, 6).map(async (row) => {
-      row.image = await fetchPoster(row.id);
-    }),
-  );
   return { currentPage: 1, totalPages: 1, hasNextPage: false, results };
 }
 
@@ -335,6 +318,25 @@ async function fetchEpisode(id, page = 1) {
   }
 }
 
+// StrawVerse can play HLS playlists and direct media, but not DASH manifests.
+function isSupportedSourceUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const path = url.pathname.toLowerCase();
+    if (path.endsWith(".m3u8")) return true;
+    if (/\.(mp4|m4v|webm|mkv|mov|avi|m2ts|ts|flv|mpe?g|wmv)$/.test(path)) {
+      return true;
+    }
+    // Extensionless signed media endpoints are common; explicit non-media
+    // documents and DASH manifests are not playable in StrawVerse.
+    return !path.includes(".");
+  } catch (_) {
+    return false;
+  }
+}
+
 // Resolvers from the Cinezo provider chain. Coverage varies per title, so every
 // resolver that answers is returned as its own source entry.
 async function resolveWithCinezo(tmdbId, season, episode) {
@@ -347,7 +349,7 @@ async function resolveWithCinezo(tmdbId, season, episode) {
     const stream = (data && data.stream) || {};
     for (const key of ["original", "remux", "hls"]) {
       const url = stream[key];
-      if (url && typeof url === "string" && /^https?:/.test(url)) {
+      if (isSupportedSourceUrl(url)) {
         out.push({
           url,
           quality: key === "remux" ? "1080p" : key === "original" ? "720p" : "default",
@@ -374,7 +376,7 @@ async function resolveWithCinezo(tmdbId, season, episode) {
     try {
       const { data } = await axios.get(p.url, { headers: CINEZO_HEADERS, timeout: 12000 });
       const url = data && data.source && data.source.url;
-      if (url && /^https?:/.test(url)) {
+      if (isSupportedSourceUrl(url)) {
         out.push({
           url,
           quality: "default",
@@ -401,7 +403,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "gokuhd",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     { match: ["gokuhd.nl"], headers: { Referer: `${baseUrl}/` } },
@@ -411,4 +413,5 @@ module.exports = {
   fetchEpisode,
   fetchEpisodeSources,
   fetchRecentEpisodes,
+  isSupportedSourceUrl,
 };
