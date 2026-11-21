@@ -8,6 +8,74 @@ const baseUrl = "https://atsu.moe";
 const cdnUrl = "https://cdn.atsu.moe";
 const PAGE_SIZE = 20;
 
+function chapterPreference(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim().toLowerCase();
+  if (typeof value === "object") {
+    return String(
+      value.id || value.name || value.scanlationMangaId || "",
+    )
+      .trim()
+      .toLowerCase();
+  }
+  return "";
+}
+
+function selectChapterRows(chapters, metadata = {}) {
+  const manga = metadata?.mangaPage || metadata || {};
+  const scanlators = new Map(
+    (manga.scanlators || []).map((scanlator) => [
+      String(scanlator.id || ""),
+      {
+        name: String(scanlator.name || "").toLowerCase(),
+        score: Number(scanlator.score || 0),
+      },
+    ]),
+  );
+  const preferred = chapterPreference(manga.sourcePreference);
+  const selected = new Map();
+
+  for (const chapter of chapters || []) {
+    if (!chapter?.id) continue;
+    const number = Number(chapter.number);
+    const title = String(chapter.title || "").trim();
+    const key = Number.isFinite(number) && number > 0 ? String(number) : title;
+    if (!key) continue;
+
+    const scanlator = scanlators.get(String(chapter.scanlationMangaId || ""));
+    const isPreferred = preferred
+      ? String(chapter.scanlationMangaId || "").toLowerCase() === preferred ||
+        scanlator?.name === preferred
+      : false;
+    const candidate = {
+      chapter,
+      number: Number.isFinite(number) ? number : 0,
+      isPreferred,
+      score: scanlator?.score ?? 0,
+      createdAt: Number(chapter.createdAt || 0),
+    };
+    const current = selected.get(key);
+    if (
+      !current ||
+      Number(candidate.isPreferred) > Number(current.isPreferred) ||
+      (candidate.isPreferred === current.isPreferred &&
+        (candidate.score > current.score ||
+          (candidate.score === current.score &&
+            candidate.createdAt > current.createdAt)))
+    ) {
+      selected.set(key, candidate);
+    }
+  }
+
+  return [...selected.values()]
+    .sort((a, b) => b.number - a.number)
+    .map(({ chapter, number }) => ({
+      id: String(chapter.id),
+      number,
+      title: number > 0 ? `Chapter ${number}` : String(chapter.title || "Special"),
+    }));
+}
+
 function parseData(data) {
   if (data && typeof data === "object") return data;
   return JSON.parse(String(data));
@@ -147,17 +215,21 @@ async function fetchMangaInfo(mangaId) {
 
 async function fetchChapters(mangaId) {
   try {
-    const { data } = await axios.get(
-      `${baseUrl}/api/manga/allChapters`,
-      { params: { mangaId } },
-    );
-    const chapters = (parseData(data).chapters || [])
-      .filter((chapter) => chapter?.id)
-      .map((chapter) => ({
-        id: `${mangaId}::${chapter.id}`,
-        number: Number(chapter.number || 0),
-        title: chapter.title || `Chapter ${chapter.number || ""}`.trim(),
-      }));
+    const [chapterResponse, metadataResponse] = await Promise.all([
+      axios.get(`${baseUrl}/api/manga/allChapters`, {
+        params: { mangaId },
+      }),
+      axios.get(`${baseUrl}/api/manga/page`, {
+        params: { id: mangaId },
+      }).catch(() => ({ data: {} })),
+    ]);
+    const rows = parseData(chapterResponse.data).chapters || [];
+    const metadata = parseData(metadataResponse.data);
+    const chapters = selectChapterRows(rows, metadata).map((chapter) => ({
+      id: `${mangaId}::${chapter.id}`,
+      number: chapter.number,
+      title: chapter.title,
+    }));
 
     return { TotalPages: 1, total: chapters.length, Chapters: chapters };
   } catch (_) {
@@ -183,7 +255,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "atsu",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

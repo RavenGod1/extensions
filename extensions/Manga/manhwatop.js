@@ -6,6 +6,51 @@ const cheerio = require("cheerio");
 
 const baseUrl = "https://manhwatop.com";
 const imageCdn = "https://c4.manhwatop.com";
+const mobileUserAgent =
+  "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/138.0.0.0 Mobile Safari/537.36";
+const retryDelays = [400, 1000];
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function request(method, url, data = null, options = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+    const config = {
+      ...options,
+      timeout: options.timeout || 15000,
+      skipBypass: true,
+      validateStatus: () => true,
+      headers: {
+        "User-Agent": mobileUserAgent,
+        ...(options.headers || {}),
+      },
+    };
+    try {
+      const response =
+        method === "post"
+          ? await global.axios.post(url, data, config)
+          : await global.axios.get(url, config);
+      if (response.status >= 200 && response.status < 300) return response;
+      lastError = new Error(`ManhwaTop request failed (${response.status})`);
+      lastError.response = response;
+    } catch (err) {
+      lastError = err;
+    }
+
+    const status =
+      lastError?.response?.status || lastError?.response?.statusCode || 0;
+    if (
+      attempt >= retryDelays.length ||
+      ![403, 429, 500, 502, 503, 504].includes(status)
+    ) {
+      throw lastError;
+    }
+    await wait(retryDelays[attempt]);
+  }
+  throw lastError;
+}
 
 // WordPress serves a size-suffixed thumbnail in the markup
 // (.../Mood-Disorder-cover-175x238.jpg). Dropping the -WxH suffix
@@ -16,7 +61,7 @@ function fullSizeImage(url) {
 }
 
 async function fetchHtml(url, options = {}) {
-  const { data } = await global.axios.get(url, options);
+  const { data } = await request("get", url, null, options);
   return typeof data === "string" ? data : String(data || "");
 }
 
@@ -99,14 +144,32 @@ async function latestManga(page = 1, filters = {}) {
 async function searchManga(query, page = 1, filters = {}) {
   if (!query) return latestManga(page, filters);
 
-  // post_type=wp-manga is required; without it WordPress searches
-  // regular posts and returns no manga cards.
-  const url = `${baseUrl}/?s=${encodeURIComponent(
-    String(query).trim(),
-  )}&post_type=wp-manga`;
-  const html = await fetchHtml(url);
-  const $ = cheerio.load(html);
-  const results = parseCards($);
+  // The server-rendered search page is challenged by Cloudflare. Madara's
+  // AJAX search endpoint returns the matching manga slugs directly.
+  const body = new URLSearchParams({
+    action: "wp-manga-search-manga",
+    title: String(query).trim(),
+  }).toString();
+  const { data } = await request("post", `${baseUrl}/wp-admin/admin-ajax.php`, body, {
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    },
+  });
+  const payload = typeof data === "string" ? JSON.parse(data) : data;
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const seen = new Set();
+  const results = [];
+  for (const row of rows) {
+    const match = String(row?.url || "").match(/\/manga\/([a-z0-9-]+)\/?$/i);
+    if (!match || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    results.push({
+      id: match[1],
+      title: String(row.title || match[1]).trim(),
+      image: null,
+    });
+  }
 
   return {
     current_page: 1,
@@ -175,7 +238,8 @@ async function fetchChapters(mangaId) {
   try {
     // The chapter list is not in the detail HTML; it is AJAX-loaded
     // from this endpoint (slug identifies the manga, no body needed).
-    const { data } = await global.axios.post(
+    const { data } = await request(
+      "post",
       `${baseUrl}/manga/${mangaId}/ajax/chapters/`,
       "",
       { headers: { "X-Requested-With": "XMLHttpRequest" } },
@@ -244,12 +308,12 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "manhwatop",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {
       match: ["manhwatop.com", "c4.manhwatop.com"],
-      headers: { Referer: `${baseUrl}/` },
+      headers: { Referer: `${baseUrl}/`, "User-Agent": mobileUserAgent },
     },
   ],
   bypassDomains: ["manhwatop.com", "c4.manhwatop.com"],

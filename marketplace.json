@@ -16,7 +16,7 @@
     },
     {
       "name": "anixohindi",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "11.0.0",
       "statuses": ["Hindi Dub"],
       "disabled": false
@@ -32,14 +32,14 @@
   "Manga": [
     {
       "name": "atsu",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.1.4",
       "statuses": ["English"],
       "disabled": false
     },
     {
       "name": "manhwatop",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "MinAppVersion": "12.1.4",
       "statuses": ["English"],
       "disabled": false

@@ -42,7 +42,42 @@ test("Atu Moe maps catalogue, metadata, chapters, and CDN pages", async () => {
     if (url.includes("/api/manga/allChapters")) {
       return {
         data: {
-          chapters: [{ id: "chapter-1", number: 1, title: "Chapter 1" }],
+          chapters: [
+            {
+              id: "chapter-1-top",
+              scanlationMangaId: "top",
+              number: 1,
+              title: "Chapter 1",
+              createdAt: 20,
+            },
+            {
+              id: "chapter-1-preferred",
+              scanlationMangaId: "preferred",
+              number: 1,
+              title: "Chapter 1",
+              createdAt: 10,
+            },
+            {
+              id: "chapter-1-5",
+              scanlationMangaId: "top",
+              number: 1.5,
+              title: "Chapter 1.5",
+              createdAt: 30,
+            },
+          ],
+        },
+      };
+    }
+    if (url.includes("/api/manga/page")) {
+      return {
+        data: {
+          mangaPage: {
+            sourcePreference: "preferred",
+            scanlators: [
+              { id: "top", name: "Top", score: 20 },
+              { id: "preferred", name: "Preferred", score: 1 },
+            ],
+          },
         },
       };
     }
@@ -73,8 +108,12 @@ test("Atu Moe maps catalogue, metadata, chapters, and CDN pages", async () => {
   assert.equal(info.image, "https://cdn.atsu.moe/static/posters/one-piece.jpg");
 
   const chapters = await atsu.fetchChapters("manga-1");
-  assert.equal(chapters.Chapters[0].id, "manga-1::chapter-1");
-  const pages = await atsu.fetchChapterPages(chapters.Chapters[0].id);
+  assert.equal(chapters.total, 2);
+  assert.equal(chapters.Chapters[0].id, "manga-1::chapter-1-5");
+  assert.equal(chapters.Chapters[0].title, "Chapter 1.5");
+  assert.equal(chapters.Chapters[1].id, "manga-1::chapter-1-preferred");
+  assert.equal(chapters.Chapters[1].title, "Chapter 1");
+  const pages = await atsu.fetchChapterPages(chapters.Chapters[1].id);
   assert.equal(pages[0].page, 1);
   assert.equal(
     pages[0].img,
@@ -143,15 +182,40 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
   axios.get = async (url) => {
     latestUrl = url;
     if (url.includes("/ajax/chapters/")) throw new Error("must be a POST");
-    if (url.includes("post_type=wp-manga")) return { data: search };
-    if (url.includes("/manga/mood-disorder/chapter-1")) return { data: chapterPage };
-    if (url.includes("/manga/mood-disorder")) return { data: detail };
-    if (url.includes("/manga/")) return { data: listing };
+    if (url.includes("post_type=wp-manga")) return { status: 200, data: search };
+    if (url.includes("/manga/mood-disorder/chapter-1"))
+      return { status: 200, data: chapterPage };
+    if (url.includes("/manga/mood-disorder"))
+      return { status: 200, data: detail };
+    if (url.includes("/manga/")) return { status: 200, data: listing };
     throw new Error(`Unexpected ManhwaTop GET URL: ${url}`);
   };
-  axios.post = async (url) => {
+  let searchCalls = 0;
+  axios.post = async (url, body, config) => {
+    if (url.includes("/wp-admin/admin-ajax.php")) {
+      searchCalls++;
+      assert.equal(config.skipBypass, true);
+      assert.equal(config.validateStatus(403), true);
+      if (searchCalls === 1) {
+        const error = new Error("challenge");
+        error.response = { status: 403 };
+        throw error;
+      }
+      return {
+        status: 200,
+        data: JSON.stringify({
+          success: true,
+          data: [
+            {
+              title: "Piece Maker of Flame",
+              url: "https://manhwatop.com/manga/piece-maker-of-flame/",
+            },
+          ],
+        }),
+      };
+    }
     chaptersUrl = url;
-    return { data: chapters };
+    return { status: 200, data: chapters };
   };
 
   const latest = await manhwatop.latestManga(1);
@@ -166,10 +230,8 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
 
   const found = await manhwatop.searchManga("one piece");
   assert.equal(found.results[0].id, "piece-maker-of-flame");
-  assert.equal(
-    found.results[0].image,
-    "https://manhwatop.com/wp-content/uploads/2024/06/manga_84257_image.jpg",
-  );
+  assert.equal(found.results[0].image, null);
+  assert.equal(searchCalls, 2);
 
   const info = await manhwatop.fetchMangaInfo("mood-disorder");
   assert.equal(info.title, "Mood Disorder");

@@ -147,6 +147,7 @@ async function AnimeInfo(id) {
       year: null,
       type: "TV",
       totalEpisodes: null,
+      hasSub: false,
       hasDub: true,
       subOrDub: "dub",
     };
@@ -172,6 +173,7 @@ async function AnimeInfo(id) {
     totalEpisodes: total,
     anilistId: aniId,
     // Every title on the site is Hindi dubbed.
+    hasSub: false,
     hasDub: true,
     subOrDub: "dub",
   };
@@ -240,7 +242,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {
