@@ -95,11 +95,19 @@ function parseNovelRows(html) {
     const title = collapseText(stripTags(match[3]));
     if (!title) continue;
 
+    // The listing serves novel_200_89/<slug>.jpg — a 200x89 banner that
+    // smears across the portrait card. novel_328_490 is the real cover
+    // (328x490, present for every slug tested).
+    const rawImage = imageAttributes.src || null;
+    const image = rawImage
+      ? rawImage.replace("/novel_200_89/", "/novel_328_490/")
+      : null;
+
     seen.add(slug);
     results.push({
       id: slug,
       title,
-      image: imageAttributes.src || null,
+      image,
     });
   }
 
@@ -321,7 +329,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "novelping",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

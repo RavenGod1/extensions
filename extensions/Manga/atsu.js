@@ -16,7 +16,10 @@ function parseData(data) {
 function assetUrl(path) {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
-  return `${cdnUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const rel = path.startsWith("/") ? path : `/${path}`;
+  // Catalogue rows carry /static/posters/... but the detail page's poster
+  // fields omit the /static segment the CDN requires (posters/x -> 404).
+  return `${cdnUrl}${rel.startsWith("/static/") ? rel : `/static${rel}`}`;
 }
 
 function parseEmbeddedJson(html, variable) {
@@ -180,7 +183,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "atsu",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     {
