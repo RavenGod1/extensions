@@ -197,13 +197,21 @@ test("fetchEpisodeSources exposes HLS subtitle tracks when present", async () =>
   assert.match(result.subtitles[0].url, /^data:text\/vtt;base64,/);
 });
 
-test("fetchEpisodeSources keeps a no-English episode sub-only", async () => {
+test("fetchEpisodeSources keeps Kunon sub-only and finds its English subtitle", async () => {
   const token = "dba1dab580065e4db9defb2cfc74f65d";
   const playerUrl = `https://play.zephyrix.org/video/${token}`;
   const masterUrl = "https://stream.example.test/kunon-master.m3u8";
+  const ravokToken = "f928b521c5648ee6d6ece6d143bf232d";
+  const ravokPlayerUrl = `https://ravok.buzz/video/${ravokToken}`;
+  const animeSaltEpisodeUrl =
+    "https://animesalt.cx/episode/kunon-the-sorcerer-can-see-1x1/";
+  const subtitleUrl = "https://as-cdn30.top/p/kunon-episode-1.jpg";
 
   axios.get = async (url) => {
-    if (url.includes("/episode/kunon-the-sorcerer-can-see-1x1/")) {
+    if (
+      url ===
+      "https://watchanimeworld.one/episode/kunon-the-sorcerer-can-see-1x1/"
+    ) {
       return { data: `<iframe src="${playerUrl}"></iframe>` };
     }
     if (url === playerUrl) {
@@ -211,6 +219,19 @@ test("fetchEpisodeSources keeps a no-English episode sub-only", async () => {
     }
     if (url === masterUrl) {
       return { data: masterWithoutEnglish };
+    }
+    if (url === animeSaltEpisodeUrl) {
+      return { data: `<iframe src="${ravokPlayerUrl}"></iframe>` };
+    }
+    if (url === ravokPlayerUrl) {
+      return {
+        data: `<script>var playerjsSubtitle = "[English]${subtitleUrl}";</script>`,
+      };
+    }
+    if (url === subtitleUrl) {
+      return {
+        data: `1\n00:00:02,740 --> 00:00:04,820\nI can see again.\n`,
+      };
     }
     throw new Error(`Unexpected source URL: ${url}`);
   };
@@ -222,5 +243,12 @@ test("fetchEpisodeSources keeps a no-English episode sub-only", async () => {
     "ep:kunon-the-sorcerer-can-see-1x1",
   );
   assert.equal(result.sources[0].type, "sub");
-  assert.deepEqual(result.subtitles, []);
+  assert.equal(result.subtitles.length, 1);
+  assert.equal(result.subtitles[0].lang, "English");
+  assert.match(result.subtitles[0].url, /^data:text\/vtt;base64,/);
+  const vtt = Buffer.from(result.subtitles[0].url.split(",")[1], "base64").toString(
+    "utf8",
+  );
+  assert.match(vtt, /00:00:02\.740 --> 00:00:04\.820/);
+  assert.match(vtt, /I can see again\./);
 });

@@ -11,6 +11,8 @@ const axios = global.axios || require("axios");
 
 const baseUrl = "https://watchanimeworld.one";
 const playerHost = "https://play.zephyrix.org";
+const animeSaltBaseUrl = "https://animesalt.cx";
+const ravokHost = "https://ravok.buzz";
 
 function slugOf(href) {
   return String(href || "")
@@ -89,6 +91,28 @@ function parsePlayerSubtitles(playerHtml) {
     .filter(Boolean);
 }
 
+async function fetchAnimeSaltSubtitles(slug) {
+  if (!/-\d+x\d+$/.test(String(slug || ""))) return [];
+  try {
+    const episodeUrl = `${animeSaltBaseUrl}/episode/${slug}/`;
+    const episodeHtml = await fetchText(episodeUrl, {
+      Referer: `${animeSaltBaseUrl}/`,
+    });
+    const token = (
+      episodeHtml.match(/ravok\.buzz\/video\/([A-Za-z0-9]{16,})/) || []
+    )[1];
+    if (!token) return [];
+    const playerUrl = `${ravokHost}/video/${token}`;
+    const playerHtml = await fetchText(playerUrl, { Referer: episodeUrl });
+    return parsePlayerSubtitles(playerHtml).map((subtitle) => ({
+      ...subtitle,
+      headers: { Referer: `${ravokHost}/` },
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
 function normalizeSubtitleTime(value) {
   const match = String(value || "").match(
     /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/,
@@ -117,6 +141,28 @@ function toWebVtt(text) {
 
 function subtitleDataUrl(vtt) {
   return `data:text/vtt;base64,${Buffer.from(vtt, "utf8").toString("base64")}`;
+}
+
+async function resolveSubtitles(candidates) {
+  const subtitles = [];
+  for (const candidate of candidates) {
+    const headers = candidate.headers || {
+      Referer: `${playerHost}/`,
+      Origin: playerHost,
+    };
+    try {
+      const text = await fetchText(candidate.url, headers);
+      const vtt = toWebVtt(text);
+      subtitles.push(
+        vtt
+          ? { lang: candidate.lang, url: subtitleDataUrl(vtt) }
+          : { ...candidate, headers },
+      );
+    } catch (_) {
+      subtitles.push({ ...candidate, headers });
+    }
+  }
+  return subtitles;
 }
 
 function parseCards(html) {
@@ -341,20 +387,9 @@ async function fetchEpisodeSources(episodeId) {
     }
     if (!candidates.length) candidates.push(...parsePlayerSubtitles(playerHtml));
 
-    const subtitles = [];
-    for (const candidate of candidates) {
-      const headers = { Referer: `${playerHost}/`, Origin: playerHost };
-      try {
-        const text = await fetchText(candidate.url, headers);
-        const vtt = toWebVtt(text);
-        subtitles.push(
-          vtt
-            ? { lang: candidate.lang, url: subtitleDataUrl(vtt) }
-            : { ...candidate, headers },
-        );
-      } catch (_) {
-        subtitles.push({ ...candidate, headers });
-      }
+    let subtitles = await resolveSubtitles(candidates);
+    if (!subtitles.length) {
+      subtitles = await resolveSubtitles(await fetchAnimeSaltSubtitles(slug));
     }
 
     return {
@@ -379,13 +414,21 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.2",
+  version: "1.0.3",
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },
     {
       match: ["zephyrix.org", "zn-grid"],
       headers: { Referer: `${playerHost}/`, Origin: playerHost },
+    },
+    {
+      match: ["animesalt.cx"],
+      headers: { Referer: `${animeSaltBaseUrl}/` },
+    },
+    {
+      match: ["ravok.buzz", "as-cdn"],
+      headers: { Referer: `${ravokHost}/` },
     },
   ],
   bypassDomains: ["zephyrix.org", "zn-grid"],
