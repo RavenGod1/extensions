@@ -107,8 +107,15 @@ function parseNovelRows(html) {
 }
 
 function pagination(html, page) {
+  // Pagination hrefs arrive entity-encoded (page&#x3D;2, keyword&#x3D;x&amp;page&#x3D;2),
+  // so the literal "page=" never matches unless we decode first.
+  const decoded = String(html)
+    .replace(/&#x3D;/gi, "=")
+    .replace(/&#0*61;/g, "=")
+    .replace(/&amp;/gi, "&")
+    .replace(/&#0*38;/g, "&");
   let totalPages = 1;
-  for (const match of String(html).matchAll(/[?&]page=(\d+)/g)) {
+  for (const match of decoded.matchAll(/[?&]page=(\d+)/g)) {
     totalPages = Math.max(totalPages, Number(match[1]));
   }
   const currentPage = Math.max(1, Number(page || 1));

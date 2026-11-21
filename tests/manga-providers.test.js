@@ -152,7 +152,7 @@ test("NovelPing maps catalogue and renders escaped prose SVG pages", async () =>
   axios.get = async (url) => {
     if (url.includes("/search")) {
       return {
-        data: `<div class="row"><img src="https://images.novelping.com/novel/test.jpg"><h3 class="novel-title"><a href="https://novelping.com/book/test-novel">Test Novel</a></h3></div><a href="https://novelping.com/search?keyword=test&page=2">2</a>`,
+        data: `<div class="row"><img src="https://images.novelping.com/novel/test.jpg"><h3 class="novel-title"><a href="https://novelping.com/book/test-novel">Test Novel</a></h3></div><a href="https://novelping.com/search?keyword=test&amp;page&#x3D;2">2</a><a href="https://novelping.com/search?keyword=test&amp;page&#x3D;3">3</a>`,
       };
     }
     if (url.includes("/ajax/chapter-archive")) {
@@ -175,7 +175,8 @@ test("NovelPing maps catalogue and renders escaped prose SVG pages", async () =>
 
   const search = await novelping.searchManga("test", 1);
   assert.equal(search.results[0].id, "test-novel");
-  assert.equal(search.totalPages, 2);
+  assert.equal(search.totalPages, 3);
+  assert.equal(search.hasNextPage, true);
 
   const info = await novelping.fetchMangaInfo("test-novel");
   assert.equal(info.title, "Test Novel");
