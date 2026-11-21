@@ -179,8 +179,10 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
 
   let chaptersUrl = null;
   let latestUrl = null;
-  axios.get = async (url) => {
+  let latestConfig = null;
+  axios.get = async (url, config) => {
     latestUrl = url;
+    latestConfig = config;
     if (url.includes("/ajax/chapters/")) throw new Error("must be a POST");
     if (url.includes("post_type=wp-manga")) return { status: 200, data: search };
     if (url.includes("/manga/mood-disorder/chapter-1"))
@@ -195,6 +197,8 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
     if (url.includes("/wp-admin/admin-ajax.php")) {
       searchCalls++;
       assert.equal(config.skipBypass, true);
+      assert.equal(config.strawverseDirectHttp, true);
+      assert.match(config.headers["User-Agent"], /Version\/4\.0/);
       assert.equal(config.validateStatus(403), true);
       if (searchCalls === 1) {
         const error = new Error("challenge");
@@ -227,6 +231,8 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
   );
   // The default order repeats cards across the page boundary.
   assert.match(latestUrl, /m_orderby=latest/);
+  assert.equal(latestConfig.strawverseDirectHttp, true);
+  assert.match(latestConfig.headers["User-Agent"], /Version\/4\.0/);
 
   const found = await manhwatop.searchManga("one piece");
   assert.equal(found.results[0].id, "piece-maker-of-flame");
