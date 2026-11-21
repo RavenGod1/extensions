@@ -139,7 +139,9 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
     </div>`;
 
   let chaptersUrl = null;
+  let latestUrl = null;
   axios.get = async (url) => {
+    latestUrl = url;
     if (url.includes("/ajax/chapters/")) throw new Error("must be a POST");
     if (url.includes("post_type=wp-manga")) return { data: search };
     if (url.includes("/manga/mood-disorder/chapter-1")) return { data: chapterPage };
@@ -159,6 +161,8 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
     latest.results[0].image,
     "https://manhwatop.com/wp-content/uploads/2025/07/Mood-Disorder-cover.jpg",
   );
+  // The default order repeats cards across the page boundary.
+  assert.match(latestUrl, /m_orderby=latest/);
 
   const found = await manhwatop.searchManga("one piece");
   assert.equal(found.results[0].id, "piece-maker-of-flame");

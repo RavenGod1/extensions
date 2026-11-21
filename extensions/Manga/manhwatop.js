@@ -80,8 +80,9 @@ function parseCards($) {
 }
 
 async function latestManga(page = 1, filters = {}) {
-  const url =
-    page > 1 ? `${baseUrl}/manga/page/${page}/` : `${baseUrl}/manga/`;
+  // m_orderby=latest gives a stable, non-overlapping order. The default
+  // order repeats the last 4 cards of page N at the top of page N+1.
+  const url = `${baseUrl}/manga/page/${page}/?m_orderby=latest`;
   const html = await fetchHtml(url);
   const $ = cheerio.load(html);
   const results = parseCards($);
