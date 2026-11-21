@@ -21,6 +21,7 @@ async function request(method, url, data = null, options = {}) {
       ...options,
       timeout: options.timeout || 15000,
       skipBypass: true,
+      strawverseDirectHttp: true,
       validateStatus: () => true,
       headers: {
         "User-Agent": mobileUserAgent,
@@ -308,7 +309,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "manhwatop",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

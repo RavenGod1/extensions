@@ -158,13 +158,20 @@ async function AnimeInfo(id) {
   const description = ($(".anime-synopsis, .synopsis, .description").first().text() || "").trim();
   const total = Number((html.match(/window\.WATCH_TOTAL_EPS\s*=\s*(\d+)/) || [])[1] || 0) || null;
   const aniId = (html.match(/embed\/ani\/(\d+)/) || [])[1] || null;
+  const poster =
+    $(".anime-dossier-card.full-width-dossier .dossier-poster-img")
+      .first()
+      .attr("src") ||
+    $(".dossier-poster-wrap .dossier-poster-img").first().attr("src") ||
+    $('meta[property="og:image"]').attr("content") ||
+    $("img").first().attr("src") ||
+    null;
   return {
     id: String(id),
     title,
-    image:
-      $('meta[property="og:image"]').attr("content") ||
-      $("img").first().attr("src") ||
-      null,
+    image: poster
+      ? poster.replace("/anime/cover/medium/", "/anime/cover/large/")
+      : null,
     description,
     genres: [],
     status: "Ongoing",
@@ -242,7 +249,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     {

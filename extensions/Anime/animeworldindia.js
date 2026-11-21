@@ -4,7 +4,7 @@
  * the series pages, streams through the zephyrix FirePlayer embed:
  * episode page -> iframe play.zephyrix.org/video/<token> -> POST
  * player/index.php?data=<token>&do=getVideo -> securedLink (signed HLS with
- * Hindi/English/Tamil/Telugu/Japanese audio tracks).
+ * title-specific audio tracks and optional player subtitles).
  */
 const cheerio = require("cheerio");
 const axios = global.axios || require("axios");
@@ -18,14 +18,105 @@ function slugOf(href) {
     .replace(/\/+$/, "");
 }
 
-async function fetchText(url) {
+async function fetchText(url, headers = {}) {
   const { data } = await axios.get(url, {
     timeout: 25000,
-    headers: { Referer: `${baseUrl}/` },
+    headers: { Referer: `${baseUrl}/`, ...headers },
     responseType: "text",
     transformResponse: [(d) => d],
   });
   return String(data || "");
+}
+
+function parseSeriesLanguages(html) {
+  const $ = cheerio.load(html);
+  return $(".loadactor a")
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean);
+}
+
+function parsePoster(html) {
+  const $ = cheerio.load(html);
+  const images = $("article.post.single img")
+    .map((_, el) => $(el).attr("src"))
+    .get()
+    .filter(Boolean);
+  const poster =
+    images.find((src) => /image\.tmdb\.org\/t\/p\//i.test(src)) ||
+    images[0] ||
+    (html.match(/(?:src|content)=["'](\/\/image\.tmdb\.org\/t\/p\/w\d+\/[^"']+)["']/i) || [])[1];
+  if (!poster) return null;
+  return poster
+    .replace(/^\/\//, "https://")
+    .replace(/(image\.tmdb\.org\/t\/p\/)w\d+/, "$1w500");
+}
+
+function parseHlsTracks(manifest) {
+  return String(manifest || "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("#EXT-X-MEDIA:"))
+    .map((line) => {
+      const attrs = {};
+      for (const match of line.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g)) {
+        attrs[match[1]] = match[2].replace(/^"|"$/g, "");
+      }
+      return attrs;
+    });
+}
+
+function parsePlayerSubtitles(playerHtml) {
+  const match = String(playerHtml || "").match(
+    /var\s+playerjsSubtitle\s*=\s*("(?:\\.|[^"\\])*")\s*;/,
+  );
+  if (!match) return [];
+  let value;
+  try {
+    value = JSON.parse(match[1]);
+  } catch (_) {
+    return [];
+  }
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const labeled = entry.match(/^\[([^\]]+)\]\s*(.+)$/);
+      const url = labeled ? labeled[2] : entry;
+      if (!/^https?:/i.test(url)) return null;
+      return { lang: labeled ? labeled[1] : "English", url };
+    })
+    .filter(Boolean);
+}
+
+function normalizeSubtitleTime(value) {
+  const match = String(value || "").match(
+    /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/,
+  );
+  if (!match) return null;
+  return `${match[1].padStart(2, "0")}:${match[2]}:${match[3]}.${match[4].padEnd(3, "0")}`;
+}
+
+function toWebVtt(text) {
+  const source = String(text || "").replace(/\r/g, "");
+  if (/^\s*WEBVTT/.test(source)) return source;
+  const cues = [];
+  for (const block of source.split(/\n{2,}/)) {
+    const lines = block.split("\n");
+    const timingIndex = lines.findIndex((line) => line.includes("-->"));
+    if (timingIndex < 0) continue;
+    const [startRaw, endRaw] = lines[timingIndex].split("-->");
+    const start = normalizeSubtitleTime(startRaw);
+    const end = normalizeSubtitleTime(endRaw);
+    const cueText = lines.slice(timingIndex + 1).join("\n").trim();
+    if (!start || !end || !cueText) continue;
+    cues.push(`${start} --> ${end}\n${cueText}`);
+  }
+  return cues.length ? `WEBVTT\n\n${cues.join("\n\n")}\n` : null;
+}
+
+function subtitleDataUrl(vtt) {
+  return `data:text/vtt;base64,${Buffer.from(vtt, "utf8").toString("base64")}`;
 }
 
 function parseCards(html) {
@@ -127,6 +218,10 @@ async function fetchEpisode(id) {
   } catch (_) {
     return { episodes: [], totalPages: 0, total: 0, currentPage: 1 };
   }
+  const languages = parseSeriesLanguages(html);
+  const hasEnglishDub = languages.some((language) =>
+    /^english$/i.test(language),
+  );
   const rows = parseEpisodeLinks(html);
   const episodes = rows.map((r, i) => ({
     id: `ep:${r.slug}`,
@@ -135,8 +230,7 @@ async function fetchEpisode(id) {
     season: r.season,
     episode: r.episode,
     duration: null,
-    // The HLS renditions carry both the Japanese track and Hindi/English dubs.
-    langs: ["sub", "dub"],
+    langs: hasEnglishDub ? ["sub", "dub"] : ["sub"],
   }));
   return { episodes, totalPages: 1, total: episodes.length, currentPage: 1 };
 }
@@ -151,9 +245,7 @@ async function AnimeInfo(id) {
   const title =
     $("h1").first().text().replace(/\s+/g, " ").trim() ||
     slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  const tmdbImg = (html.match(/(?:src|content)=["'](\/\/image\.tmdb\.org\/t\/p\/w\d+\/[^"']+)["']/i) ||
-    [])[1];
-  const image = tmdbImg ? `https:${tmdbImg}` : null;
+  const image = parsePoster(html);
   const entryMeta = $(".entry-meta").first().text().replace(/\s+/g, " ").trim();
   const metaDesc = ($('meta[name="description"]').attr("content") || "").trim();
   const description = (entryMeta || metaDesc).slice(0, 700);
@@ -165,6 +257,9 @@ async function AnimeInfo(id) {
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
+  const hasEnglishDub = parseSeriesLanguages(html).some((language) =>
+    /^english$/i.test(language),
+  );
   const { episodes } = await fetchEpisode(slug);
   return {
     id: slug,
@@ -177,8 +272,8 @@ async function AnimeInfo(id) {
     type: "TV",
     totalEpisodes: episodes.length || null,
     hasSub: true,
-    hasDub: true,
-    subOrDub: "both",
+    hasDub: hasEnglishDub,
+    subOrDub: hasEnglishDub ? "both" : "sub",
   };
 }
 
@@ -192,40 +287,90 @@ async function fetchEpisodeSources(episodeId) {
   }
   const token = (html.match(/play\.zephyrix\.org\/video\/([A-Za-z0-9]{16,})/) || [])[1];
   if (!token) return { sources: [], subtitles: [] };
+  const playerUrl = `${playerHost}/video/${token}`;
   try {
-    const { data } = await axios.post(
-      `${playerHost}/player/index.php?data=${token}&do=getVideo`,
-      new URLSearchParams({ hash: token, r: `${baseUrl}/` }).toString(),
-      {
-        timeout: 20000,
-        responseType: "text",
-        transformResponse: [(d) => d],
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          Referer: `${playerHost}/video/${token}`,
-          Origin: playerHost,
-          "X-Requested-With": "XMLHttpRequest",
+    const [playerHtml, response] = await Promise.all([
+      fetchText(playerUrl).catch(() => ""),
+      axios.post(
+        `${playerHost}/player/index.php?data=${token}&do=getVideo`,
+        new URLSearchParams({ hash: token, r: `${baseUrl}/` }).toString(),
+        {
+          timeout: 20000,
+          responseType: "text",
+          transformResponse: [(d) => d],
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            Referer: playerUrl,
+            Origin: playerHost,
+            "X-Requested-With": "XMLHttpRequest",
+          },
         },
-      },
-    );
+      ),
+    ]);
     // Real axios returns the raw body (transformResponse) but the test harness
     // pre-parses JSON content types, so accept both shapes.
+    const data = response.data;
     const j =
       typeof data === "object" && data !== null ? data : JSON.parse(String(data));
     const url = j.securedLink || (j.hls ? j.videoSource : null);
     if (!url || !/^https?:/.test(url)) return { sources: [], subtitles: [] };
+
+    const manifest = await fetchText(url, {
+      Referer: `${playerHost}/`,
+      Origin: playerHost,
+    }).catch(() => "");
+    const tracks = parseHlsTracks(manifest);
+    const hasEnglishDub = tracks.some(
+      (track) =>
+        String(track.TYPE || "").toUpperCase() === "AUDIO" &&
+        (/^(eng|en)$/i.test(track.LANGUAGE || "") ||
+          /^english$/i.test(track.NAME || "")),
+    );
+
+    const candidates = [];
+    for (const track of tracks) {
+      if (String(track.TYPE || "").toUpperCase() !== "SUBTITLES" || !track.URI) {
+        continue;
+      }
+      try {
+        candidates.push({
+          lang: track.NAME || track.LANGUAGE || "Subtitles",
+          url: new URL(track.URI, url).href,
+        });
+      } catch (_) {}
+    }
+    if (!candidates.length) candidates.push(...parsePlayerSubtitles(playerHtml));
+
+    const subtitles = [];
+    for (const candidate of candidates) {
+      const headers = { Referer: `${playerHost}/`, Origin: playerHost };
+      try {
+        const text = await fetchText(candidate.url, headers);
+        const vtt = toWebVtt(text);
+        subtitles.push(
+          vtt
+            ? { lang: candidate.lang, url: subtitleDataUrl(vtt) }
+            : { ...candidate, headers },
+        );
+      } catch (_) {
+        subtitles.push({ ...candidate, headers });
+      }
+    }
+
     return {
       sources: [
         {
           url,
           quality: "default",
-          name: "Anime World India HLS",
-          type: "dub",
+          name: hasEnglishDub
+            ? "Anime World India HLS (SUB + DUB)"
+            : "Anime World India HLS (SUB)",
+          type: hasEnglishDub ? "dub" : "sub",
           isM3U8: /\.m3u8/i.test(url),
           headers: { Referer: `${playerHost}/`, Origin: playerHost },
         },
       ],
-      subtitles: [],
+      subtitles,
     };
   } catch (_) {
     return { sources: [], subtitles: [] };
@@ -234,7 +379,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },
