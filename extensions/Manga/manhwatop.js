@@ -20,9 +20,10 @@ async function request(method, url, data = null, options = {}) {
     const config = {
       ...options,
       timeout: options.timeout || 15000,
-      skipBypass: true,
+      // Do NOT set skipBypass/validateStatus: manhwatop.com sits behind a
+      // Cloudflare challenge that rejects plain Node requests with 403, and
+      // the core's403 bypass retry is what obtains cf_clearance for us.
       strawverseDirectHttp: true,
-      validateStatus: () => true,
       headers: {
         "User-Agent": mobileUserAgent,
         ...(options.headers || {}),
@@ -309,7 +310,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "manhwatop",
-  version: "1.0.2",
+  version: "1.0.3",
   baseUrl,
   headerRules: [
     {

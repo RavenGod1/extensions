@@ -196,10 +196,12 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
   axios.post = async (url, body, config) => {
     if (url.includes("/wp-admin/admin-ajax.php")) {
       searchCalls++;
-      assert.equal(config.skipBypass, true);
+      // skipBypass/validateStatus must stay unset: they disable the core's
+      // 403 Cloudflare-bypass retry that manhwatop.com now requires.
+      assert.equal(config.skipBypass, undefined);
       assert.equal(config.strawverseDirectHttp, true);
+      assert.equal(config.validateStatus, undefined);
       assert.match(config.headers["User-Agent"], /Version\/4\.0/);
-      assert.equal(config.validateStatus(403), true);
       if (searchCalls === 1) {
         const error = new Error("challenge");
         error.response = { status: 403 };

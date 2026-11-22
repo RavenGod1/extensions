@@ -39,7 +39,7 @@
     },
     {
       "name": "manhwatop",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "MinAppVersion": "12.1.5",
       "statuses": ["English"],
       "disabled": false
