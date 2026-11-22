@@ -723,7 +723,7 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.4",
+  version: "1.1.5",
   baseUrl,
   headerRules: [
     {

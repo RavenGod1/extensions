@@ -55,5 +55,5 @@ test("AnimeInfo uses the portrait cover instead of the wide banner", async () =>
     info.image,
     "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx108040-FYeFAH75GZ0c.jpg",
   );
-  assert.equal(provider.version, "1.0.2");
+  assert.equal(provider.version, "1.0.3");
 });

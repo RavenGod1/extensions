@@ -286,7 +286,7 @@ async function fetchRecentEpisodes(filters = {}) {
 
 module.exports = {
   name: "anixo",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     { match: ["anixo.buzz"], headers: { Referer: `${baseUrl}/` } },

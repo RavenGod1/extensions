@@ -2,30 +2,37 @@
   "Anime": [
     {
       "name": "animekai",
-      "version": "1.1.4",
+      "version": "1.1.5",
       "MinAppVersion": "11.0.0",
       "statuses": ["Sub & Dub", "Hardsub"],
       "disabled": false
     },
     {
       "name": "anixo",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "11.0.0",
       "statuses": ["Sub & Dub", "HLS"],
       "disabled": false
     },
     {
       "name": "anixohindi",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "MinAppVersion": "11.0.0",
       "statuses": ["Hindi Dub"],
       "disabled": false
     },
     {
       "name": "animeworldindia",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "MinAppVersion": "12.1.5",
       "statuses": ["Multi Audio", "HLS"],
+      "disabled": false
+    },
+    {
+      "name": "piratexplay",
+      "version": "1.0.0",
+      "MinAppVersion": "12.1.5",
+      "statuses": ["Sub & Dub", "HLS"],
       "disabled": false
     }
   ],
