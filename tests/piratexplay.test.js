@@ -129,17 +129,32 @@ const seriesPage = `<article class="post single">
   </ul>
 </article>`;
 
-// Verbatim from https://piratexplay.cc/episode/one-piece-season-1-37854-1x1/
-const episodePage = `<iframe
-  src="https://piratexplay.cc/proxy/play.php?url=https://ravok.buzz/video/8757150decbd89b0f5442ca3db4d0e0e"          frameborder="0"
-  ></iframe>`;
+// Current episode-page iframe shape.
+const episodePage = `<iframe src="https://piratexplay.cc/proxy/play.php?url=https://ravok.buzz/video/8757150decbd89b0f5442ca3db4d0e0e"></iframe>
+<iframe data-src="https://rubystm.com/e/3hklgq1uj9i6.html"></iframe>
+<iframe data-src="https://piratexplay.cc/proxy/multi.php?data=W3sibGFuZ3VhZ2UiOiJIaW5kaSIsImxpbmsiOiJodHRwczovL2FieXNzcGxheWVyLmNvbS9zUDdOLTNCcnIifV0="></iframe>
+<iframe data-src="https://vidmoly.biz/embed-vz1m7a4x988b.html"></iframe>`;
 
-// Verbatim shape of the ravok master.m3u8
-const masterWithEnglish = `#EXTM3U
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="jpn",NAME="Japanese",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/japanese"
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="eng",NAME="English",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/english"
-#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2048000,RESOLUTION=1280x720,NAME="720p",CODECS="avc1.4D401F,mp4a.40.2",AUDIO="audio"
-720p.m3u8`;
+const rubystmLandingPage = `<form action="/dl" method="post">
+  <input name="op" value="embed">
+  <input name="file_code" value="">
+  <input name="auto" value="1">
+  <input name="referer" value="">
+</form>`;
+
+const rubystmPlayerPage = `<script>
+  jwplayer("vplayer").setup({
+    sources: [{file:"https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_,l,n,h,.urlset/master.m3u8?t=token"}]
+  });
+</script>`;
+
+const masterWithHindi = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio0",NAME="English",LANGUAGE="en",AUTOSELECT=YES,DEFAULT=YES,URI="https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-a1.m3u8?t=token"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio0",NAME="Hindi",LANGUAGE="hi",AUTOSELECT=NO,DEFAULT=NO,URI="https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-a2.m3u8?t=token"
+#EXT-X-STREAM-INF:BANDWIDTH=486096,RESOLUTION=472x360,CODECS="avc1.64001e,mp4a.40.2",AUDIO="audio0"
+https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-v1-a2.m3u8?t=token
+#EXT-X-STREAM-INF:BANDWIDTH=1372629,RESOLUTION=944x720,CODECS="avc1.640020,mp4a.40.2",AUDIO="audio0"
+https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_h/index-v1-a2.m3u8?t=token`;
 
 test("catalogue cards become series entries with TMDB artwork", async () => {
   axios.get = async (url) => {
@@ -223,37 +238,59 @@ test("AnimeInfo reports the languages and episodes of a series", async () => {
   assert.deepEqual(episodes.episodes[0].langs, ["sub", "dub"]);
 });
 
-test("fetchEpisodeSources resolves the ravok player into a signed HLS source", async () => {
-  const token = "8757150decbd89b0f5442ca3db4d0e0e";
-  const playerUrl = `https://ravok.buzz/video/${token}`;
-  const masterUrl = "https://ravok.buzz/cdn/hls/dba24dcc/master.m3u8?md5=abc&expires=1";
+test("fetchEpisodeSources resolves the Rubystm mirror into a Hindi HLS track", async () => {
+  const masterUrl =
+    "https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_,l,n,h,.urlset/master.m3u8?t=token";
+  const finalUrl = "https://nuvorel.top/e/3hklgq1uj9i6.html";
 
   axios.get = async (url) => {
     if (url.includes("/episode/one-piece-season-1-37854-1x1/")) {
       return { data: episodePage };
     }
+    if (url === "https://rubystm.com/e/3hklgq1uj9i6.html") {
+      return {
+        data: rubystmLandingPage,
+        request: { responseUrl: finalUrl },
+      };
+    }
     if (url === masterUrl) {
-      return { data: masterWithEnglish };
+      return { data: masterWithHindi };
     }
     throw new Error(`Unexpected URL: ${url}`);
   };
   axios.post = async (url, body, config) => {
+    assert.equal(url, "https://nuvorel.top/dl");
     assert.equal(
-      url,
-      `https://ravok.buzz/player/index.php?data=${token}&do=getVideo`,
+      body,
+      "op=embed&file_code=3hklgq1uj9i6&auto=1&referer=https%3A%2F%2Fpiratexplay.cc%2F",
     );
-    assert.equal(body, `hash=${token}&r=https%3A%2F%2Fpiratexplay.cc%2F`);
-    assert.equal(config.headers.Referer, playerUrl);
-    assert.equal(config.headers.Origin, "https://ravok.buzz");
-    return { data: JSON.stringify({ hls: true, securedLink: masterUrl }) };
+    assert.equal(config.headers.Referer, finalUrl);
+    assert.equal(config.headers.Origin, "https://nuvorel.top");
+    assert.equal(
+      config.headers["User-Agent"],
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36",
+    );
+    return { data: rubystmPlayerPage };
   };
 
   const result = await provider.fetchEpisodeSources(
     "one-piece-season-1-37854-1x1",
   );
   assert.equal(result.sources.length, 1);
-  assert.equal(result.sources[0].url, masterUrl);
+  assert.equal(
+    result.sources[0].url,
+    "https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_h/index-v1-a2.m3u8?t=token",
+  );
+  assert.equal(result.sources[0].quality, "720p");
+  assert.equal(result.sources[0].name, "PirateXPlay Hindi");
+  assert.equal(result.sources[0].server, "PirateXPlay Hindi");
+  assert.equal(result.sources[0].language, "hi");
+  assert.equal(result.sources[0].lang, "Hindi");
   assert.equal(result.sources[0].type, "dub");
   assert.equal(result.sources[0].isM3U8, true);
-  assert.equal(result.sources[0].headers.Referer, "https://ravok.buzz/");
+  assert.equal(result.sources[0].headers.Referer, finalUrl);
+  assert.equal(
+    result.sources[0].headers["User-Agent"],
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36",
+  );
 });

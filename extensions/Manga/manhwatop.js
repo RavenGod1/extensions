@@ -8,50 +8,20 @@ const baseUrl = "https://manhwatop.com";
 const imageCdn = "https://c4.manhwatop.com";
 const mobileUserAgent =
   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/138.0.0.0 Mobile Safari/537.36";
-const retryDelays = [400, 1000];
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function request(method, url, data = null, options = {}) {
-  let lastError = null;
-  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-    const config = {
-      ...options,
-      timeout: options.timeout || 15000,
-      // Do NOT set skipBypass/validateStatus: manhwatop.com sits behind a
-      // Cloudflare challenge that rejects plain Node requests with 403, and
-      // the core's403 bypass retry is what obtains cf_clearance for us.
-      strawverseDirectHttp: true,
-      headers: {
-        "User-Agent": mobileUserAgent,
-        ...(options.headers || {}),
-      },
-    };
-    try {
-      const response =
-        method === "post"
-          ? await global.axios.post(url, data, config)
-          : await global.axios.get(url, config);
-      if (response.status >= 200 && response.status < 300) return response;
-      lastError = new Error(`ManhwaTop request failed (${response.status})`);
-      lastError.response = response;
-    } catch (err) {
-      lastError = err;
-    }
-
-    const status =
-      lastError?.response?.status || lastError?.response?.statusCode || 0;
-    if (
-      attempt >= retryDelays.length ||
-      ![403, 429, 500, 502, 503, 504].includes(status)
-    ) {
-      throw lastError;
-    }
-    await wait(retryDelays[attempt]);
-  }
-  throw lastError;
+  const config = {
+    ...options,
+    timeout: options.timeout || 15000,
+    // Let the core Cloudflare path handle 403 once. Internal retries here
+    // repeat the blocked request before clearance can be obtained.
+    headers: {
+      "User-Agent": mobileUserAgent,
+      ...(options.headers || {}),
+    },
+  };
+  return method === "post"
+    ? global.axios.post(url, data, config)
+    : global.axios.get(url, config);
 }
 
 // WordPress serves a size-suffixed thumbnail in the markup
@@ -310,7 +280,7 @@ async function fetchChapterPages(chapterId) {
 
 module.exports = {
   name: "manhwatop",
-  version: "1.0.3",
+  version: "1.0.4",
   baseUrl,
   headerRules: [
     {

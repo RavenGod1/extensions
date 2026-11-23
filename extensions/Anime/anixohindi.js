@@ -83,6 +83,29 @@ function normalize(text) {
     .trim();
 }
 
+// The catalogue is one page of ~300 titles, so type/sort filters are applied
+// client-side over the parsed cards.
+function applyCatalogueFilters(results, filters = {}) {
+  let out = results;
+  const type = String(filters.type || "").trim();
+  if (type && type.toLowerCase() !== "all") {
+    out = out.filter(
+      (row) => String(row.type || "").toUpperCase() === type.toUpperCase(),
+    );
+  }
+  const sort = String(filters.sort || "").trim();
+  if (sort === "name-az") {
+    out = [...out].sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  } else if (sort === "latest-updated") {
+    out = [...out].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+  } else if (sort === "most-viewed") {
+    out = [...out].sort(
+      (a, b) => Number(b.totalEpisodes || 0) - Number(a.totalEpisodes || 0),
+    );
+  }
+  return out;
+}
+
 async function fetchRecentEpisodes(filters = {}) {
   const page = Math.max(1, Number(filters?.page || 1));
   // The catalogue is a single page of ~300 titles.
@@ -94,7 +117,7 @@ async function fetchRecentEpisodes(filters = {}) {
     currentPage: 1,
     totalPages: 1,
     hasNextPage: false,
-    results,
+    results: applyCatalogueFilters(results, filters),
   };
 }
 
@@ -105,7 +128,7 @@ async function SearchAnime(query, filters = {}) {
     currentPage: 1,
     totalPages: 1,
     hasNextPage: false,
-    results,
+    results: applyCatalogueFilters(results, filters),
   };
 }
 
@@ -249,7 +272,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.3",
+  version: "1.0.4",
   baseUrl,
   headerRules: [
     {

@@ -199,14 +199,9 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
       // skipBypass/validateStatus must stay unset: they disable the core's
       // 403 Cloudflare-bypass retry that manhwatop.com now requires.
       assert.equal(config.skipBypass, undefined);
-      assert.equal(config.strawverseDirectHttp, true);
+      assert.equal(config.strawverseDirectHttp, undefined);
       assert.equal(config.validateStatus, undefined);
       assert.match(config.headers["User-Agent"], /Version\/4\.0/);
-      if (searchCalls === 1) {
-        const error = new Error("challenge");
-        error.response = { status: 403 };
-        throw error;
-      }
       return {
         status: 200,
         data: JSON.stringify({
@@ -233,13 +228,13 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
   );
   // The default order repeats cards across the page boundary.
   assert.match(latestUrl, /m_orderby=latest/);
-  assert.equal(latestConfig.strawverseDirectHttp, true);
+  assert.equal(latestConfig.strawverseDirectHttp, undefined);
   assert.match(latestConfig.headers["User-Agent"], /Version\/4\.0/);
 
   const found = await manhwatop.searchManga("one piece");
   assert.equal(found.results[0].id, "piece-maker-of-flame");
   assert.equal(found.results[0].image, null);
-  assert.equal(searchCalls, 2);
+  assert.equal(searchCalls, 1);
 
   const info = await manhwatop.fetchMangaInfo("mood-disorder");
   assert.equal(info.title, "Mood Disorder");
@@ -266,6 +261,30 @@ test("ManhwaTop maps catalogue, AJAX chapters, and CDN reader pages", async () =
     pages[0].img,
     "https://c4.manhwatop.com/manga_hash/chapter_1/ch_1_1.jpg",
   );
+});
+
+test("ManhwaTop does not retry a blocked request", async () => {
+  const originalGet = axios.get;
+  const originalPost = axios.post;
+  let calls = 0;
+  try {
+    axios.get = originalGet;
+    axios.post = async () => {
+      calls++;
+      const error = new Error("challenge");
+      error.response = { status: 403 };
+      throw error;
+    };
+
+    await assert.rejects(
+      manhwatop.searchManga("blocked"),
+      /challenge/,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    axios.get = originalGet;
+    axios.post = originalPost;
+  }
 });
 
 test("NovelPing maps catalogue and renders escaped prose SVG pages", async () => {

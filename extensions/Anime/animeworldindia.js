@@ -54,6 +54,14 @@ function parsePoster(html) {
     .replace(/(image\.tmdb\.org\/t\/p\/)w\d+/, "$1w500");
 }
 
+function highestResolution(manifest) {
+  const heights = [
+    ...String(manifest || "").matchAll(/RESOLUTION=\d+x(\d+)/gi),
+  ].map((m) => Number(m[1]));
+  if (!heights.length) return "default";
+  return `${Math.max(...heights)}p`;
+}
+
 function parseHlsTracks(manifest) {
   return String(manifest || "")
     .split(/\r?\n/)
@@ -372,6 +380,9 @@ async function fetchEpisodeSources(episodeId) {
         (/^(eng|en)$/i.test(track.LANGUAGE || "") ||
           /^english$/i.test(track.NAME || "")),
     );
+    // The master carries every rendition; the per-rendition playlists are
+    // video-only, so keep the master URL and report its highest resolution.
+    const quality = highestResolution(manifest);
 
     const candidates = [];
     for (const track of tracks) {
@@ -396,7 +407,7 @@ async function fetchEpisodeSources(episodeId) {
       sources: [
         {
           url,
-          quality: "default",
+          quality,
           name: hasEnglishDub
             ? "Anime World India HLS (SUB + DUB)"
             : "Anime World India HLS (SUB)",
@@ -414,7 +425,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.4",
+  version: "1.0.5",
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },

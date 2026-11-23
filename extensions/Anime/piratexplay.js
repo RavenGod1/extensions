@@ -2,15 +2,43 @@
  * StrawVerse Extension - PirateXPlay (piratexplay.cc)
  * Catalogue from /category/latest (series cards), search from the site's own
  * /api/search-ajax.php?keyword= endpoint, episodes from the series page and
- * streams through the ravok player: episode page -> ravok.buzz/video/<token>
- * -> POST player/index.php?data=<token>&do=getVideo -> securedLink (a signed
- * HLS master with one audio track per dubbed language).
+ * streams through the live episode mirrors: episode page -> Rubystm embed ->
+ * POST /dl -> signed multi-audio HLS master. Each audio language is returned
+ * as its own playable HLS variant; Vidmoly is the HLS fallback.
  */
 const cheerio = require("cheerio");
 const axios = global.axios || require("axios");
 
 const baseUrl = "https://piratexplay.cc";
-const playerHost = "https://ravok.buzz";
+const rubystmHost = "https://rubystm.com";
+const browserUserAgent =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36";
+
+const languageCodes = {
+  bengali: "bn",
+  english: "en",
+  hindi: "hi",
+  japanese: "ja",
+  kannada: "kn",
+  korean: "ko",
+  malayalam: "ml",
+  marathi: "mr",
+  tamil: "ta",
+  telugu: "te",
+};
+
+const languageNames = {
+  bn: "Bengali",
+  en: "English",
+  hi: "Hindi",
+  ja: "Japanese",
+  kn: "Kannada",
+  ko: "Korean",
+  ml: "Malayalam",
+  mr: "Marathi",
+  ta: "Tamil",
+  te: "Telugu",
+};
 
 // AnimeInfo and fetchEpisode both need the series page; keep it for a minute
 // so opening a title costs one request, not two.
@@ -202,17 +230,221 @@ async function fetchEpisode(id) {
   };
 }
 
+function parseHlsAttributes(line) {
+  const attrs = {};
+  for (const match of String(line || "").matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g)) {
+    attrs[match[1]] = match[2].replace(/^"|"$/g, "");
+  }
+  return attrs;
+}
+
 function parseHlsTracks(manifest) {
   return String(manifest || "")
     .split(/\r?\n/)
     .filter((line) => line.startsWith("#EXT-X-MEDIA:"))
-    .map((line) => {
-      const attrs = {};
-      for (const match of line.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g)) {
-        attrs[match[1]] = match[2].replace(/^"|"$/g, "");
-      }
-      return attrs;
+    .map(parseHlsAttributes);
+}
+
+function parseHlsVariants(manifest, manifestUrl) {
+  const variants = [];
+  let attrs = null;
+  for (const line of String(manifest || "").split(/\r?\n/)) {
+    if (line.startsWith("#EXT-X-STREAM-INF:")) {
+      attrs = parseHlsAttributes(line);
+      continue;
+    }
+    if (!attrs || !line || line.startsWith("#")) continue;
+    try {
+      const height = Number(String(attrs.RESOLUTION || "").split("x")[1]) || 0;
+      variants.push({
+        url: new URL(line, manifestUrl).href,
+        quality: height ? `${height}p` : "default",
+        height,
+      });
+    } catch (_) {}
+    attrs = null;
+  }
+  return variants;
+}
+
+function parseEpisodeMirrors(html) {
+  const $ = cheerio.load(html);
+  const mirrors = [];
+  $("iframe").each((_, element) => {
+    const raw = $(element).attr("src") || $(element).attr("data-src");
+    if (!raw) return;
+    try {
+      const url = new URL(raw, baseUrl).href;
+      if (!mirrors.includes(url)) mirrors.push(url);
+    } catch (_) {}
+  });
+  return mirrors;
+}
+
+function decodeMultiPayload(url) {
+  try {
+    const encoded = new URL(url, baseUrl).searchParams.get("data");
+    if (!encoded) return [];
+    const rows = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+    return rows
+      .map((row) => ({
+        language: String(row?.language || "").trim(),
+        link: String(row?.link || "").trim(),
+      }))
+      .filter((row) => row.language && row.link);
+  } catch (_) {
+    return [];
+  }
+}
+
+function parseMultiPage(html) {
+  const $ = cheerio.load(html);
+  return $("[data-link][data-language]")
+    .map((_, element) => ({
+      language: String($(element).attr("data-language") || "").trim(),
+      link: String($(element).attr("data-link") || "").trim(),
+    }))
+    .get()
+    .filter((row) => row.language && row.link);
+}
+
+function extractM3u8Url(html) {
+  const text = String(html || "").replace(/\\\//g, "/");
+  const setup = text.match(
+    /sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']/i,
+  );
+  const candidates = setup ? [setup[1]] : [];
+  for (const match of text.matchAll(
+    /https?:\/\/[^"'<>\\\s]+?\.m3u8(?:\?[^"'<>\\\s]*)?/gi,
+  )) {
+    candidates.push(match[0]);
+  }
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate, baseUrl).href;
+      if (/\.m3u8(?:$|\?)/i.test(url)) return url;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function languageCode(name) {
+  const value = String(name || "").trim().toLowerCase();
+  return languageCodes[value] || (/^[a-z]{2,3}$/.test(value) ? value : "");
+}
+
+function audioToken(uri, manifestUrl) {
+  try {
+    const path = new URL(uri, manifestUrl).pathname;
+    return path.match(/\/index-(a\d+)\.m3u8$/)?.[1] || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function variantWithAudio(variantUrl, token) {
+  try {
+    const url = new URL(variantUrl);
+    const match = url.pathname.match(/\/index-(v\d+)-a\d+\.m3u8$/);
+    if (!match) return null;
+    url.pathname = url.pathname.replace(
+      match[0],
+      `/index-${match[1]}-${token}.m3u8`,
+    );
+    return url.href;
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildLanguageSources(masterUrl, manifest, languageRows, referer) {
+  const variants = parseHlsVariants(manifest, masterUrl).sort(
+    (a, b) => b.height - a.height,
+  );
+  const requested = new Map();
+  for (const row of languageRows) {
+    const code = languageCode(row.language);
+    if (code) requested.set(code, row.language);
+  }
+
+  const sources = [];
+  const seen = new Set();
+  for (const track of parseHlsTracks(manifest)) {
+    if (String(track.TYPE || "").toUpperCase() !== "AUDIO") continue;
+    const code = languageCode(track.LANGUAGE) || languageCode(track.NAME);
+    if (requested.size && !requested.has(code)) continue;
+    const token = audioToken(track.URI, masterUrl);
+    if (!token) continue;
+    const variant = variants
+      .map((item) => ({ ...item, url: variantWithAudio(item.url, token) }))
+      .find((item) => item.url);
+    if (!variant) continue;
+    const key = code || track.NAME;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const name = languageNames[code] || requested.get(code) || track.NAME || code;
+    sources.push({
+      url: variant.url,
+      quality: variant.quality,
+      name: `PirateXPlay ${name}`,
+      server: `PirateXPlay ${name}`,
+      type: "dub",
+      language: code || name.toLowerCase(),
+      lang: name,
+      isM3U8: true,
+      headers: { Referer: referer, "User-Agent": browserUserAgent },
     });
+  }
+  return sources;
+}
+
+async function resolveRubystm(mirrorUrl) {
+  const landing = await axios.get(mirrorUrl, {
+    timeout: 25000,
+    headers: { Referer: `${baseUrl}/`, "User-Agent": browserUserAgent },
+    responseType: "text",
+    transformResponse: [(data) => data],
+  });
+  const finalUrl =
+    landing.request?.res?.responseUrl ||
+    landing.request?.responseUrl ||
+    landing.request?.responseURL ||
+    mirrorUrl;
+  const code = new URL(finalUrl, baseUrl).pathname.match(
+    /\/e\/([A-Za-z0-9]{12})\.html/,
+  )?.[1];
+  if (!code) return null;
+
+  const response = await axios.post(
+    new URL("/dl", finalUrl).href,
+    new URLSearchParams({
+      op: "embed",
+      file_code: code,
+      auto: "1",
+      referer: `${baseUrl}/`,
+    }).toString(),
+    {
+      timeout: 25000,
+      responseType: "text",
+      transformResponse: [(data) => data],
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Referer: finalUrl,
+        Origin: new URL(finalUrl).origin,
+        "User-Agent": browserUserAgent,
+      },
+    },
+  );
+  const masterUrl = extractM3u8Url(response.data);
+  return masterUrl ? { masterUrl, referer: finalUrl } : null;
+}
+
+async function resolveVidmoly(mirrorUrl) {
+  const url = new URL(mirrorUrl);
+  url.searchParams.set("pxp", Date.now());
+  const html = await fetchText(url.href, { "User-Agent": browserUserAgent });
+  const masterUrl = extractM3u8Url(html);
+  return masterUrl ? { masterUrl, referer: mirrorUrl } : null;
 }
 
 async function fetchEpisodeSources(episodeId) {
@@ -224,91 +456,100 @@ async function fetchEpisodeSources(episodeId) {
   } catch (_) {
     return { sources: [], subtitles: [] };
   }
-  const token = (html.match(/ravok\.buzz\/video\/([A-Za-z0-9]{16,})/) || [])[1];
-  if (!token) return { sources: [], subtitles: [] };
-  const playerUrl = `${playerHost}/video/${token}`;
-  try {
-    const response = await axios.post(
-      `${playerHost}/player/index.php?data=${token}&do=getVideo`,
-      new URLSearchParams({ hash: token, r: `${baseUrl}/` }).toString(),
-      {
-        timeout: 20000,
-        responseType: "text",
-        transformResponse: [(d) => d],
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          Referer: playerUrl,
-          Origin: playerHost,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      },
-    );
-    // Real axios returns the raw body (transformResponse), the test harness
-    // pre-parses JSON content types, so accept both shapes.
-    const data = response.data;
-    const j =
-      typeof data === "object" && data !== null ? data : JSON.parse(String(data));
-    const url = j.securedLink || (j.hls ? j.videoSource : null);
-    if (!url || !/^https?:/.test(url)) return { sources: [], subtitles: [] };
 
-    const manifest = await fetchText(url, {
-      Referer: `${playerHost}/`,
-      Origin: playerHost,
-    }).catch(() => "");
-    const tracks = parseHlsTracks(manifest);
-    const hasEnglishDub = tracks.some(
-      (track) =>
-        String(track.TYPE || "").toUpperCase() === "AUDIO" &&
-        (/^(eng|en)$/i.test(track.LANGUAGE || "") ||
-          /^english$/i.test(track.NAME || "")),
-    );
-
-    const subtitles = tracks
-      .filter(
-        (track) =>
-          String(track.TYPE || "").toUpperCase() === "SUBTITLES" && track.URI,
-      )
-      .map((track) => {
-        try {
-          return {
-            lang: track.NAME || track.LANGUAGE || "Subtitles",
-            url: new URL(track.URI, url).href,
-          };
-        } catch (_) {
-          return null;
-        }
-      })
-      .filter(Boolean);
-
-    return {
-      sources: [
-        {
-          url,
-          quality: "default",
-          name: hasEnglishDub
-            ? "PirateXPlay HLS (SUB + DUB)"
-            : "PirateXPlay HLS (SUB)",
-          type: hasEnglishDub ? "dub" : "sub",
-          isM3U8: /\.m3u8/i.test(url),
-          headers: { Referer: `${playerHost}/`, Origin: playerHost },
-        },
-      ],
-      subtitles,
-    };
-  } catch (_) {
-    return { sources: [], subtitles: [] };
+  const mirrors = parseEpisodeMirrors(html);
+  const multiUrl = mirrors.find((url) => url.includes("/proxy/multi.php"));
+  let languageRows = multiUrl ? decodeMultiPayload(multiUrl) : [];
+  if (!languageRows.length && multiUrl) {
+    try {
+      languageRows = parseMultiPage(await fetchText(multiUrl));
+    } catch (_) {}
   }
+
+  const rubystmMirrors = mirrors.filter((url) => {
+    try {
+      return new URL(url).hostname.endsWith("rubystm.com");
+    } catch (_) {
+      return false;
+    }
+  });
+  for (const mirrorUrl of rubystmMirrors) {
+    try {
+      const resolved = await resolveRubystm(mirrorUrl);
+      if (!resolved) continue;
+      const manifest = await fetchText(resolved.masterUrl, {
+        Referer: resolved.referer,
+        "User-Agent": browserUserAgent,
+      });
+      const sources = buildLanguageSources(
+        resolved.masterUrl,
+        manifest,
+        languageRows,
+        resolved.referer,
+      );
+      if (sources.length) return { sources, subtitles: [] };
+    } catch (_) {}
+  }
+
+  const vidmolyMirrors = mirrors.filter((url) => {
+    try {
+      return new URL(url).hostname.includes("vidmoly.");
+    } catch (_) {
+      return false;
+    }
+  });
+  for (const mirrorUrl of vidmolyMirrors) {
+    try {
+      const resolved = await resolveVidmoly(mirrorUrl);
+      if (!resolved) continue;
+      return {
+        sources: [
+          {
+            url: resolved.masterUrl,
+            quality: "default",
+            name: "PirateXPlay Vidmoly",
+            server: "PirateXPlay Vidmoly",
+            type: "sub",
+            language: "multi",
+            lang: "Multi Audio",
+            isM3U8: true,
+            headers: {
+              Referer: resolved.referer,
+              "User-Agent": browserUserAgent,
+            },
+          },
+        ],
+        subtitles: [],
+      };
+    } catch (_) {}
+  }
+
+  return { sources: [], subtitles: [] };
 }
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.0",
+  version: "1.0.1",
   baseUrl,
   headerRules: [
     { match: ["piratexplay.cc"], headers: { Referer: `${baseUrl}/` } },
     {
-      match: ["ravok.buzz", "as-cdn"],
-      headers: { Referer: `${playerHost}/` },
+      match: ["rubystm.com", "nuvorel.top"],
+      headers: {
+        Referer: `${baseUrl}/`,
+        "User-Agent": browserUserAgent,
+      },
+    },
+    {
+      match: ["streamruby.net"],
+      headers: {
+        Referer: `${rubystmHost}/`,
+        "User-Agent": browserUserAgent,
+      },
+    },
+    {
+      match: ["vmpx.online"],
+      headers: { "User-Agent": browserUserAgent },
     },
   ],
   SearchAnime,

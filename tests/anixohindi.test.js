@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const axios = {
@@ -55,5 +56,11 @@ test("AnimeInfo uses the portrait cover instead of the wide banner", async () =>
     info.image,
     "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx108040-FYeFAH75GZ0c.jpg",
   );
-  assert.equal(provider.version, "1.0.3");
+  // Version parity with marketplace.json (not a literal) so future bumps do
+  // not need this test edited; the app only offers the update when they match.
+  const marketplace = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "marketplace.json"), "utf8"),
+  );
+  const entry = marketplace.Anime.find((item) => item.name === "anixohindi");
+  assert.equal(provider.version, entry.version);
 });

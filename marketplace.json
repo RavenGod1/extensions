@@ -9,30 +9,30 @@
     },
     {
       "name": "anixo",
-      "version": "1.0.2",
+      "version": "1.0.4",
       "MinAppVersion": "11.0.0",
       "statuses": ["Sub & Dub", "HLS"],
       "disabled": false
     },
     {
       "name": "anixohindi",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "MinAppVersion": "11.0.0",
       "statuses": ["Hindi Dub"],
       "disabled": false
     },
     {
       "name": "animeworldindia",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "MinAppVersion": "12.1.5",
       "statuses": ["Multi Audio", "HLS"],
       "disabled": false
     },
     {
       "name": "piratexplay",
-      "version": "1.0.0",
-      "MinAppVersion": "12.1.5",
-      "statuses": ["Sub & Dub", "HLS"],
+      "version": "1.0.1",
+      "MinAppVersion": "12.1.8",
+      "statuses": ["Multi Audio", "HLS"],
       "disabled": false
     }
   ],
@@ -46,8 +46,8 @@
     },
     {
       "name": "manhwatop",
-      "version": "1.0.3",
-      "MinAppVersion": "12.1.5",
+      "version": "1.0.4",
+      "MinAppVersion": "12.1.8",
       "statuses": ["English"],
       "disabled": false
     },

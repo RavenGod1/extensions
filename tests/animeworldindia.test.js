@@ -53,8 +53,10 @@ const radiantSeries = `<article class="post single">
 const masterWithEnglish = `#EXTM3U
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="jpn",NAME="Japanese",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/japanese"
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="eng",NAME="English",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/english"
-#EXT-X-STREAM-INF:BANDWIDTH=1200000
-master.m3u8`;
+#EXT-X-STREAM-INF:BANDWIDTH=1200000,RESOLUTION=640x360
+master.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4096000,RESOLUTION=1920x1080
+master-1080.m3u8`;
 
 const masterWithoutEnglish = `#EXTM3U
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="jpn",NAME="Japanese",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/japanese"
@@ -153,6 +155,8 @@ test("fetchEpisodeSources exposes English subtitles as valid WebVTT", async () =
   assert.equal(result.sources.length, 1);
   assert.equal(result.sources[0].type, "dub");
   assert.equal(result.sources[0].url, masterUrl);
+  // The quality comes from the master's highest rendition, not "default".
+  assert.equal(result.sources[0].quality, "1080p");
   assert.equal(result.subtitles.length, 1);
   assert.equal(result.subtitles[0].lang, "English");
   assert.match(result.subtitles[0].url, /^data:text\/vtt;base64,/);

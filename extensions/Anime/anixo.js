@@ -62,21 +62,74 @@ function rowToResult(row) {
   return { id: String(id), title, image };
 }
 
-async function searchDb(query, page, limit) {
+async function searchDb(query, page, limit, extra = {}) {
   const { data } = await axios.get(`${dbUrl}/index.php`, {
-    params: { api: "search", q: query, page, limit },
+    params: { api: "search", q: query, page, limit, ...extra },
   });
   const rows = (data && (data.results || data.data || data.media || data.items)) || [];
   return { rows, total: (data && data.total) || 0, pages: (data && data.pages) || 0 };
 }
 
-async function listPage(query, page) {
+// The API's status filter only accepts the vocabulary its rows use
+// (FINISHED / RELEASING); anything else silently returns nothing.
+function mapFilterStatus(value) {
+  const v = String(value || "").trim().toLowerCase();
+  if (!v) return "";
+  if (v === "currently-airing" || v === "airing" || v === "ongoing" || v === "releasing")
+    return "RELEASING";
+  if (v === "finished-airing" || v === "finished" || v === "completed")
+    return "FINISHED";
+  return "";
+}
+
+function rowTitle(row) {
+  return (
+    (row.title && (row.title.english || row.title.romaji || row.title.native)) ||
+    row.title_english ||
+    row.title_romaji ||
+    ""
+  );
+}
+
+function applyRowFilters(rows, filters = {}) {
+  let out = rows;
+  const format = String(filters.type || "").trim();
+  if (format) {
+    out = out.filter(
+      (row) => String(row.format || "").toLowerCase() === format.toLowerCase(),
+    );
+  }
+  const language = String(filters.language || "").trim().toLowerCase();
+  if (language === "sub") {
+    out = out.filter((row) => Number(row.anikoto_sub || 0) > 0);
+  } else if (language === "dub") {
+    out = out.filter((row) => Number(row.anikoto_dub || 0) > 0);
+  }
+  const sort = String(filters.sort || "").trim();
+  if (sort === "score") {
+    out = [...out].sort(
+      (a, b) => Number(b.average_score || 0) - Number(a.average_score || 0),
+    );
+  } else if (sort === "most-viewed") {
+    out = [...out].sort(
+      (a, b) => Number(b.popularity || 0) - Number(a.popularity || 0),
+    );
+  } else if (sort === "name-az") {
+    out = [...out].sort((a, b) => rowTitle(a).localeCompare(rowTitle(b)));
+  } else if (sort === "latest-updated") {
+    out = [...out].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+  }
+  return out;
+}
+
+async function listPage(query, page, filters = {}) {
   const limit = 20;
+  const status = mapFilterStatus(filters.status);
   let found = { rows: [], total: 0, pages: 0 };
   try {
-    found = await searchDb(query, page, limit);
+    found = await searchDb(query, page, limit, status ? { status } : {});
   } catch (_) {}
-  const results = found.rows.map(rowToResult);
+  const results = applyRowFilters(found.rows, filters).map(rowToResult);
   const totalPages = found.pages || Math.max(1, Math.ceil(found.total / limit));
   return { currentPage: page, totalPages, hasNextPage: page < totalPages, results };
 }
@@ -201,6 +254,21 @@ async function fetchEpisode(id, page = 1) {
   return { episodes, totalPages: 1, total: episodes.length, currentPage: 1 };
 }
 
+// The stream URL is an HLS master; its EXT-X-STREAM-INF line carries the real
+// resolution, so report that instead of a "default" quality.
+async function detectQuality(url, headers) {
+  try {
+    const { data } = await axios.get(url, {
+      headers,
+      timeout: 10000,
+      responseType: "text",
+    });
+    const match = /RESOLUTION=\d+x(\d+)/i.exec(String(data || ""));
+    if (match) return `${Number(match[1])}p`;
+  } catch (_) {}
+  return "default";
+}
+
 async function fetchEpisodeSources(episodeId, category = null) {
   const raw = String(episodeId);
   const idx = raw.lastIndexOf(":");
@@ -243,27 +311,22 @@ async function fetchEpisodeSources(episodeId, category = null) {
       if (!streamUrl) continue;
 
       const headers = { Referer: `${baseUrl}/` };
-      const sources = [
-        {
-          url: streamUrl,
-          quality: "default",
-          name: (data && data.server) || `AniXo ${track}`,
-          type: track,
-          isM3U8: true,
-          headers,
-        },
+      const urls = [
+        streamUrl,
+        ...((data && data.fallbackStreams) || []).filter(Boolean),
       ];
-      for (const alt of (data && data.fallbackStreams) || []) {
-        if (!alt) continue;
-        sources.push({
-          url: alt,
-          quality: "default",
-          name: `AniXo ${track} (backup)`,
-          type: track,
-          isM3U8: true,
-          headers,
-        });
-      }
+      const serverName = (data && data.server) || `AniXo ${track}`;
+      const qualities = await Promise.all(
+        urls.map((url) => detectQuality(url, headers)),
+      );
+      const sources = urls.map((url, index) => ({
+        url,
+        quality: qualities[index],
+        name: index === 0 ? serverName : `${serverName} (backup ${index})`,
+        type: track,
+        isM3U8: true,
+        headers,
+      }));
 
       return {
         sources,
@@ -277,16 +340,16 @@ async function fetchEpisodeSources(episodeId, category = null) {
 }
 
 async function SearchAnime(query, filters = {}) {
-  return listPage(query, Number(filters.page || 1));
+  return listPage(query, Number(filters.page || 1), filters);
 }
 
 async function fetchRecentEpisodes(filters = {}) {
-  return listPage("", Number(filters.page || 1));
+  return listPage("", Number(filters.page || 1), filters);
 }
 
 module.exports = {
   name: "anixo",
-  version: "1.0.2",
+  version: "1.0.4",
   baseUrl,
   headerRules: [
     { match: ["anixo.buzz"], headers: { Referer: `${baseUrl}/` } },
