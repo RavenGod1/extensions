@@ -7,12 +7,14 @@
  * title-specific audio tracks and optional player subtitles).
  */
 const cheerio = require("cheerio");
+const crypto = require("crypto");
 const axios = global.axios || require("axios");
 
 const baseUrl = "https://watchanimeworld.one";
 const playerHost = "https://play.zephyrix.org";
 const animeSaltBaseUrl = "https://animesalt.cx";
 const ravokHost = "https://ravok.buzz";
+const abyssPlayerHost = "https://player.abyssplayer.com";
 
 function slugOf(href) {
   return String(href || "")
@@ -118,6 +120,283 @@ async function fetchAnimeSaltSubtitles(slug) {
     }));
   } catch (_) {
     return [];
+  }
+}
+
+function parseAnimeSaltEmbeds(html) {
+  const ravokTokens = new Set();
+  const abyssEmbeds = new Map();
+  const $ = cheerio.load(String(html || ""));
+  const embedUrls = [];
+  $("iframe").each((_, element) => {
+    for (const attribute of ["src", "data-src"]) {
+      const value = $(element).attr(attribute);
+      if (value) embedUrls.push(value);
+    }
+  });
+
+  const addEmbed = (raw, language = "") => {
+    let url;
+    try {
+      url = new URL(raw, animeSaltBaseUrl);
+    } catch (_) {
+      return;
+    }
+    if (url.hostname === "ravok.buzz") {
+      const token = url.pathname.match(/^\/video\/([A-Za-z0-9]{16,})/)?.[1];
+      if (token) ravokTokens.add(token);
+      return;
+    }
+    if (url.hostname === "player.abyssplayer.com") {
+      const slug = url.pathname.replace(/^\/+|\/+$/g, "");
+      if (slug) abyssEmbeds.set(url.href, language);
+      return;
+    }
+    if (!url.pathname.includes("/plyr/player.php")) return;
+    const dataMatch = String(raw).match(/[?&]data=([^&#]+)/i);
+    let data = "";
+    try {
+      data = decodeURIComponent(dataMatch?.[1] || url.searchParams.get("data") || "");
+    } catch (_) {}
+    if (!data) return;
+    let rows;
+    try {
+      rows = JSON.parse(Buffer.from(data, "base64").toString("utf8"));
+    } catch (_) {
+      return;
+    }
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+      if (row?.link) addEmbed(String(row.link), String(row.language || language));
+    }
+  };
+
+  for (const raw of embedUrls) addEmbed(raw);
+  return {
+    ravokTokens: [...ravokTokens],
+    abyssEmbeds: [...abyssEmbeds].map(([url, language]) => ({ url, language })),
+  };
+}
+
+function ravokVideoUrl(data) {
+  if (data && typeof data === "object" && !Buffer.isBuffer(data)) {
+    return data.securedLink || (data.hls ? data.videoSource : null);
+  }
+  const text = String(data || "");
+  if (/video\s+not\s+found|<title>\s*error\s*<\/title>/i.test(text)) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed.securedLink || (parsed.hls ? parsed.videoSource : null);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveRavokVideo(token, episodeUrl, sourcePlayerHost) {
+  const playerUrl = `${sourcePlayerHost}/video/${token}`;
+  try {
+    const [playerHtml, response] = await Promise.all([
+      fetchText(playerUrl, { Referer: episodeUrl }).catch(() => ""),
+      axios.post(
+        `${sourcePlayerHost}/player/index.php?data=${token}&do=getVideo`,
+        new URLSearchParams({
+          hash: token,
+          r: sourcePlayerHost === ravokHost ? episodeUrl : `${baseUrl}/`,
+        }).toString(),
+        {
+          timeout: 20000,
+          responseType: "text",
+          transformResponse: [(data) => data],
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            Referer: playerUrl,
+            Origin: sourcePlayerHost,
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        },
+      ),
+    ]);
+    const url = ravokVideoUrl(response.data);
+    if (!url || !/^https?:/.test(url)) return null;
+    const manifest = await fetchText(url, {
+      Referer: `${sourcePlayerHost}/`,
+      Origin: sourcePlayerHost,
+    }).catch(() => "");
+    const tracks = parseHlsTracks(manifest);
+    const hasEnglishDub = tracks.some(
+      (track) =>
+        String(track.TYPE || "").toUpperCase() === "AUDIO" &&
+        (/^(eng|en)$/i.test(track.LANGUAGE || "") ||
+          /^english$/i.test(track.NAME || "")),
+    );
+    return {
+      url,
+      playerHtml,
+      tracks,
+      hasEnglishDub,
+      quality: highestResolution(manifest),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function buildRavokResult(video, sourcePlayerHost, sourceName) {
+  const candidates = [];
+  for (const track of video.tracks) {
+    if (String(track.TYPE || "").toUpperCase() !== "SUBTITLES" || !track.URI) {
+      continue;
+    }
+    try {
+      candidates.push({
+        lang: track.NAME || track.LANGUAGE || "Subtitles",
+        url: new URL(track.URI, video.url).href,
+        headers: {
+          Referer: `${sourcePlayerHost}/`,
+          Origin: sourcePlayerHost,
+        },
+      });
+    } catch (_) {}
+  }
+  if (!candidates.length) {
+    candidates.push(
+      ...parsePlayerSubtitles(video.playerHtml).map((subtitle) => ({
+        ...subtitle,
+        headers: { Referer: `${sourcePlayerHost}/` },
+      })),
+    );
+  }
+  return {
+    sources: [
+      {
+        url: video.url,
+        quality: video.quality,
+        name: video.hasEnglishDub
+          ? `${sourceName} HLS (SUB + DUB)`
+          : `${sourceName} HLS (SUB)`,
+        type: video.hasEnglishDub ? "dub" : "sub",
+        isM3U8: /\.m3u8/i.test(video.url),
+        headers: {
+          Referer: `${sourcePlayerHost}/`,
+          Origin: sourcePlayerHost,
+        },
+      },
+    ],
+    subtitles: await resolveSubtitles(candidates),
+  };
+}
+
+function parseAbyssPayload(html) {
+  const match = String(html || "").match(/const\s+datas\s*=\s*"([^"]+)"/);
+  if (!match) return null;
+  try {
+    const outer = JSON.parse(
+      Buffer.from(match[1], "base64").toString("latin1"),
+    );
+    if (!outer?.slug || outer.md5_id == null || outer.user_id == null) {
+      return null;
+    }
+    if (outer.media && typeof outer.media === "object") return outer;
+    const encrypted = Buffer.from(
+      Array.from(String(outer.media || ""), (character) => character.charCodeAt(0) & 0xff),
+    );
+    const keyText = crypto
+      .createHash("md5")
+      .update(`${outer.user_id}:${outer.slug}:${outer.md5_id}`)
+      .digest("hex");
+    const key = Buffer.from(keyText, "ascii");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-ctr",
+      key,
+      key.subarray(0, 16),
+    );
+    const media = JSON.parse(
+      Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8"),
+    );
+    return { ...outer, media };
+  } catch (_) {
+    return null;
+  }
+}
+
+function abyssPathToken(path, size) {
+  const numberMd5 = crypto
+    .createHash("md5")
+    .update(
+      Buffer.from(
+        Array.from(String(size), (digit) => Number(digit)),
+      ),
+    )
+    .digest("hex");
+  const key = Buffer.from(numberMd5, "utf8");
+  const cipher = crypto.createCipheriv("aes-256-ctr", key, key.subarray(0, 16));
+  const encrypted = Buffer.concat([
+    cipher.update(path, "utf8"),
+    cipher.final(),
+  ]);
+  const once = Buffer.from(encrypted)
+    .toString("base64")
+    .replace(/=+$/, "");
+  return Buffer.from(once, "utf8")
+    .toString("base64")
+    .replace(/=+$/, "");
+}
+
+function abyssMediaUrl(payload, row) {
+  const size = Number(row.size);
+  const resId = Number(row.res_id);
+  if (!size || !resId || !payload.slug) return null;
+  const domains = payload.media?.mp4?.domains || [];
+  const sub = String(row.sub || "");
+  const domain =
+    domains.find((value) => value === sub || value.startsWith(`${sub}.`)) ||
+    domains[0] ||
+    (() => {
+      try {
+        return new URL(row.url).hostname;
+      } catch (_) {
+        return "";
+      }
+    })();
+  if (!domain) return null;
+  let host;
+  try {
+    host = new URL(domain.includes("://") ? domain : `https://${domain}`).hostname;
+  } catch (_) {
+    return null;
+  }
+  const path = `/mp4/${payload.md5_id}/${resId}/${size}?v=${encodeURIComponent(payload.slug)}`;
+  return `https://${host}/sora/${size}/${abyssPathToken(path, size)}`;
+}
+
+async function resolveAbyssEmbed(embed) {
+  try {
+    const html = await fetchText(embed.url, { Referer: `${animeSaltBaseUrl}/` });
+    const payload = parseAbyssPayload(html);
+    if (!payload) return null;
+    const rows = (payload.media?.mp4?.sources || [])
+      .filter((row) => row?.status !== false && Number(row.size) > 0)
+      .sort((left, right) => {
+        const height = (row) =>
+          Number(String(row.label || "").match(/\d+/)?.[0] || row.res_id || 0);
+        return height(left) - height(right) || Number(left.size) - Number(right.size);
+      });
+    const row = rows.at(-1);
+    if (!row) return null;
+    const url = abyssMediaUrl(payload, row);
+    if (!url) return null;
+    const language = String(embed.language || "");
+    return {
+      url,
+      quality: String(row.label || "default"),
+      name: `Anime Salt Abyss${language ? ` (${language})` : ""}`,
+      type: language ? (/japanese/i.test(language) ? "sub" : "dub") : "sub",
+      lang: language,
+      isM3U8: false,
+      headers: { Referer: `${abyssPlayerHost}/` },
+    };
+  } catch (_) {
+    return null;
   }
 }
 
@@ -245,14 +524,20 @@ async function SearchAnime(query, filters = {}) {
   return { currentPage: 1, totalPages: 1, hasNextPage: false, results: parseCards(html) };
 }
 
-function parseEpisodeLinks(html) {
+function parseEpisodeLinks(html, host = "watchanimeworld.one") {
   const links = [
     ...new Set(
-      [...String(html).matchAll(/href=["'](https:\/\/watchanimeworld\.one\/episode\/[^"'#?]+)["']/gi)].map(
+      [...String(html).matchAll(/href=["']([^"'#?]*\/episode\/[^"'#?]+)["']/gi)].map(
         (m) => m[1],
       ),
     ),
-  ];
+  ].filter((href) => {
+    try {
+      return new URL(href, `https://${host}`).hostname === host;
+    } catch (_) {
+      return false;
+    }
+  });
   const rows = links
     .map((href) => {
       const slug = href.replace(/\/+$/, "").split("/").pop();
@@ -269,16 +554,26 @@ async function fetchEpisode(id) {
   let html = "";
   try {
     html = await fetchText(`${baseUrl}/series/${slug}/`);
-  } catch (_) {
-    return { episodes: [], totalPages: 0, total: 0, currentPage: 1 };
-  }
-  const languages = parseSeriesLanguages(html);
-  const hasEnglishDub = languages.some((language) =>
+  } catch (_) {}
+  let hasEnglishDub = parseSeriesLanguages(html).some((language) =>
     /^english$/i.test(language),
   );
-  const rows = parseEpisodeLinks(html);
+  let source = "watchanimeworld";
+  let rows = parseEpisodeLinks(html, "watchanimeworld.one");
+  if (!rows.length) {
+    try {
+      html = await fetchText(`${animeSaltBaseUrl}/series/${slug}/`, {
+        Referer: `${animeSaltBaseUrl}/`,
+      });
+    } catch (_) {}
+    hasEnglishDub =
+      hasEnglishDub ||
+      parseSeriesLanguages(html).some((language) => /^english$/i.test(language));
+    rows = parseEpisodeLinks(html, "animesalt.cx");
+    source = "animesalt";
+  }
   const episodes = rows.map((r, i) => ({
-    id: `ep:${r.slug}`,
+    id: source === "animesalt" ? `ep:as:${r.slug}` : `ep:${r.slug}`,
     number: i + 1,
     title: `Episode ${r.episode}`,
     season: r.season,
@@ -332,100 +627,50 @@ async function AnimeInfo(id) {
 }
 
 async function fetchEpisodeSources(episodeId) {
-  const slug = String(episodeId).replace(/^ep:/, "");
+  const rawId = String(episodeId).replace(/^ep:/, "");
+  const useAnimeSalt = rawId.startsWith("as:");
+  const slug = useAnimeSalt ? rawId.slice(3) : rawId;
+  const sourceBaseUrl = useAnimeSalt ? animeSaltBaseUrl : baseUrl;
+  const episodeUrl = `${sourceBaseUrl}/episode/${slug}/`;
   let html = "";
   try {
-    html = await fetchText(`${baseUrl}/episode/${slug}/`);
+    html = await fetchText(episodeUrl, { Referer: `${sourceBaseUrl}/` });
   } catch (_) {
     return { sources: [], subtitles: [] };
   }
-  const token = (html.match(/play\.zephyrix\.org\/video\/([A-Za-z0-9]{16,})/) || [])[1];
+
+  if (useAnimeSalt) {
+    const embeds = parseAnimeSaltEmbeds(html);
+    for (const token of embeds.ravokTokens) {
+      const video = await resolveRavokVideo(token, episodeUrl, ravokHost);
+      if (!video) continue;
+      const result = await buildRavokResult(video, ravokHost, "Anime Salt");
+      if (result.sources.length) return result;
+    }
+    const sources = [];
+    for (const embed of embeds.abyssEmbeds) {
+      const source = await resolveAbyssEmbed(embed);
+      if (source) sources.push(source);
+    }
+    return { sources, subtitles: [] };
+  }
+
+  const token = (
+    html.match(/play\.zephyrix\.org\/video\/([A-Za-z0-9]{16,})/) || []
+  )[1];
   if (!token) return { sources: [], subtitles: [] };
-  const playerUrl = `${playerHost}/video/${token}`;
-  try {
-    const [playerHtml, response] = await Promise.all([
-      fetchText(playerUrl).catch(() => ""),
-      axios.post(
-        `${playerHost}/player/index.php?data=${token}&do=getVideo`,
-        new URLSearchParams({ hash: token, r: `${baseUrl}/` }).toString(),
-        {
-          timeout: 20000,
-          responseType: "text",
-          transformResponse: [(d) => d],
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            Referer: playerUrl,
-            Origin: playerHost,
-            "X-Requested-With": "XMLHttpRequest",
-          },
-        },
-      ),
-    ]);
-    // Real axios returns the raw body (transformResponse) but the test harness
-    // pre-parses JSON content types, so accept both shapes.
-    const data = response.data;
-    const j =
-      typeof data === "object" && data !== null ? data : JSON.parse(String(data));
-    const url = j.securedLink || (j.hls ? j.videoSource : null);
-    if (!url || !/^https?:/.test(url)) return { sources: [], subtitles: [] };
-
-    const manifest = await fetchText(url, {
-      Referer: `${playerHost}/`,
-      Origin: playerHost,
-    }).catch(() => "");
-    const tracks = parseHlsTracks(manifest);
-    const hasEnglishDub = tracks.some(
-      (track) =>
-        String(track.TYPE || "").toUpperCase() === "AUDIO" &&
-        (/^(eng|en)$/i.test(track.LANGUAGE || "") ||
-          /^english$/i.test(track.NAME || "")),
-    );
-    // The master carries every rendition; the per-rendition playlists are
-    // video-only, so keep the master URL and report its highest resolution.
-    const quality = highestResolution(manifest);
-
-    const candidates = [];
-    for (const track of tracks) {
-      if (String(track.TYPE || "").toUpperCase() !== "SUBTITLES" || !track.URI) {
-        continue;
-      }
-      try {
-        candidates.push({
-          lang: track.NAME || track.LANGUAGE || "Subtitles",
-          url: new URL(track.URI, url).href,
-        });
-      } catch (_) {}
-    }
-    if (!candidates.length) candidates.push(...parsePlayerSubtitles(playerHtml));
-
-    let subtitles = await resolveSubtitles(candidates);
-    if (!subtitles.length) {
-      subtitles = await resolveSubtitles(await fetchAnimeSaltSubtitles(slug));
-    }
-
-    return {
-      sources: [
-        {
-          url,
-          quality,
-          name: hasEnglishDub
-            ? "Anime World India HLS (SUB + DUB)"
-            : "Anime World India HLS (SUB)",
-          type: hasEnglishDub ? "dub" : "sub",
-          isM3U8: /\.m3u8/i.test(url),
-          headers: { Referer: `${playerHost}/`, Origin: playerHost },
-        },
-      ],
-      subtitles,
-    };
-  } catch (_) {
-    return { sources: [], subtitles: [] };
+  const video = await resolveRavokVideo(token, episodeUrl, playerHost);
+  if (!video) return { sources: [], subtitles: [] };
+  const result = await buildRavokResult(video, playerHost, "Anime World India");
+  if (!result.subtitles.length) {
+    result.subtitles = await resolveSubtitles(await fetchAnimeSaltSubtitles(slug));
   }
+  return result;
 }
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.5",
+  version: "1.0.6",
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },

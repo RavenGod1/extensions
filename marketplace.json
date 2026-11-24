@@ -23,8 +23,8 @@
     },
     {
       "name": "animeworldindia",
-      "version": "1.0.5",
-      "MinAppVersion": "12.1.5",
+      "version": "1.0.6",
+      "MinAppVersion": "12.1.9",
       "statuses": ["Multi Audio", "HLS"],
       "disabled": false
     },

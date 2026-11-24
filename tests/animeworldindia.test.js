@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const path = require("node:path");
 
 const axios = {
@@ -50,6 +51,15 @@ const radiantSeries = `<article class="post single">
   <a href="https://watchanimeworld.one/episode/radiant-2x2/" class="lnk-blk"></a>
 </section>`;
 
+const emptyPrimarySeries = `<article class="post single">
+  <aside class="fg1"><p class="loadactor"><a href="https://watchanimeworld.one/category/language/english/">English</a>, <a href="https://watchanimeworld.one/category/language/hindi/">Hindi</a></p></aside>
+</article>`;
+
+const animeSaltSeries = `<section class="section episodes">
+  <a href="https://animesalt.cx/episode/grand-blue-dreaming-1x1/" class="lnk-blk"></a>
+  <a href="https://animesalt.cx/episode/grand-blue-dreaming-1x2/" class="lnk-blk"></a>
+</section>`;
+
 const masterWithEnglish = `#EXTM3U
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="jpn",NAME="Japanese",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/japanese"
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="eng",NAME="English",DEFAULT=NO,AUTOSELECT=YES,URI="/hls/english"
@@ -78,6 +88,50 @@ Wealth, fame, power...
 0:00:04.82 --> 0:00:06.74
 Gold Roger, the King of the Pirates,
 `;
+
+function abyssOuterData(slug, media) {
+  const userId = 475761;
+  const md5Id = 31763016;
+  const keyText = crypto
+    .createHash("md5")
+    .update(`${userId}:${slug}:${md5Id}`)
+    .digest("hex");
+  const key = Buffer.from(keyText, "ascii");
+  const cipher = crypto.createCipheriv("aes-256-ctr", key, key.subarray(0, 16));
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(media), "utf8"),
+    cipher.final(),
+  ]);
+  const escaped = Array.from(
+    encrypted,
+    (byte) => `\\u${byte.toString(16).padStart(4, "0")}`,
+  ).join("");
+  const json = `{"slug":${JSON.stringify(slug)},"md5_id":${md5Id},"user_id":${userId},"media":"${escaped}"}`;
+  return Buffer.from(json, "utf8").toString("base64");
+}
+
+function decryptAbyssToken(token, size) {
+  const numberMd5 = crypto
+    .createHash("md5")
+    .update(
+      Buffer.from(
+        Array.from(String(size), (digit) => Number(digit)),
+      ),
+    )
+    .digest("hex");
+  const key = Buffer.from(numberMd5, "utf8");
+  const decipher = crypto.createDecipheriv(
+    "aes-256-ctr",
+    key,
+    key.subarray(0, 16),
+  );
+  const once = Buffer.from(token, "base64").toString("utf8");
+  const encrypted = Buffer.from(once, "base64");
+  return Buffer.concat([
+    decipher.update(encrypted),
+    decipher.final(),
+  ]).toString("utf8");
+}
 
 test("AnimeInfo reports real language flags and uses the portrait poster", async () => {
   axios.get = async (url) => {
@@ -255,4 +309,161 @@ test("fetchEpisodeSources keeps Kunon sub-only and finds its English subtitle", 
   );
   assert.match(vtt, /00:00:02\.740 --> 00:00:04\.820/);
   assert.match(vtt, /I can see again\./);
+});
+
+test("fetchEpisode falls back to Anime Salt when Anime World India has no episodes", async () => {
+  const token = "a6683e4f659943ba9342149f446c98c0";
+  const playerUrl = `https://ravok.buzz/video/${token}`;
+  const masterUrl = "https://ravok.buzz/cdn/hls/test/master.m3u8";
+  const subtitleUrl = "https://as-cdn28.top/p/grand-blue-subtitles.jpg";
+
+  axios.get = async (url) => {
+    if (url === "https://watchanimeworld.one/series/grand-blue-dreaming/") {
+      return { data: emptyPrimarySeries };
+    }
+    if (url === "https://animesalt.cx/series/grand-blue-dreaming/") {
+      return { data: animeSaltSeries };
+    }
+    if (url === "https://animesalt.cx/episode/grand-blue-dreaming-1x1/") {
+      return { data: `<iframe src="${playerUrl}"></iframe>` };
+    }
+    if (url === playerUrl) {
+      return {
+        data: `<script>var playerjsSubtitle = "[English]${subtitleUrl}";</script>`,
+      };
+    }
+    if (url === masterUrl) {
+      return { data: masterWithEnglish };
+    }
+    if (url === subtitleUrl) {
+      return { data: onePieceSubtitle };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  axios.post = async (url, body, config) => {
+    assert.equal(
+      url,
+      `https://ravok.buzz/player/index.php?data=${token}&do=getVideo`,
+    );
+    assert.equal(
+      body,
+      `hash=${token}&r=https%3A%2F%2Fanimesalt.cx%2Fepisode%2Fgrand-blue-dreaming-1x1%2F`,
+    );
+    assert.equal(config.headers.Referer, playerUrl);
+    assert.equal(config.headers.Origin, "https://ravok.buzz");
+    return { data: JSON.stringify({ hls: true, securedLink: masterUrl }) };
+  };
+
+  const episodes = await provider.fetchEpisode("grand-blue-dreaming");
+  assert.equal(episodes.total, 2);
+  assert.equal(episodes.episodes[0].id, "ep:as:grand-blue-dreaming-1x1");
+  assert.deepEqual(episodes.episodes[0].langs, ["sub", "dub"]);
+
+  const result = await provider.fetchEpisodeSources(
+    "ep:as:grand-blue-dreaming-1x1",
+  );
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, masterUrl);
+  assert.equal(result.sources[0].quality, "1080p");
+  assert.equal(result.sources[0].type, "dub");
+  assert.equal(result.sources[0].name, "Anime Salt HLS (SUB + DUB)");
+  assert.equal(result.sources[0].headers.Referer, "https://ravok.buzz/");
+  assert.equal(result.subtitles.length, 1);
+  assert.equal(result.subtitles[0].lang, "English");
+  assert.match(result.subtitles[0].url, /^data:text\/vtt;base64,/);
+});
+
+test("fetchEpisodeSources falls back from a broken Ravok embed to Anime Salt Abyss MP4", async () => {
+  const ravokToken = "5f22e82f3d2c279d57c76a0513276abb";
+  const ravokPlayerUrl = `https://ravok.buzz/video/${ravokToken}`;
+  const episodeUrl = "https://animesalt.cx/episode/black-torch-1x1/";
+  const englishEmbed = "https://player.abyssplayer.com/_c4U7yC-K";
+  const japaneseEmbed = "https://player.abyssplayer.com/LtCxAdrZM";
+  const media = {
+    mp4: {
+      sources: [
+        {
+          label: "720p",
+          res_id: 4,
+          size: 251823817,
+          status: true,
+          url: "https://8oekkfci14.sssrr.org",
+          partSize: 0,
+          sub: "weifxopsn26",
+        },
+        {
+          label: "1080p",
+          res_id: 5,
+          size: 708094739,
+          status: true,
+          url: "https://uy8tgkg18.sssrr.org",
+          partSize: 354418688,
+          sub: "weifxopsn26",
+        },
+      ],
+      domains: [
+        "d4vi7e6z20.sssrr.org",
+        "weifxopsn26.sssrr.org",
+        "o2k4gzaqd0.sssrr.org",
+      ],
+    },
+  };
+  const multiData = Buffer.from(
+    JSON.stringify([
+      { language: "English", link: englishEmbed },
+      { language: "Japanese", link: japaneseEmbed },
+    ]),
+    "utf8",
+  ).toString("base64");
+
+  axios.get = async (url) => {
+    if (url === episodeUrl) {
+      return {
+        data: `<iframe src="${ravokPlayerUrl}"></iframe><iframe data-src="https://animesalt.cx/wp-content/themes/torofilm/public/plyr/player.php?data=${multiData}"></iframe>`,
+      };
+    }
+    if (url === ravokPlayerUrl) {
+      return { data: "<title>Error</title>Video not found." };
+    }
+    if (url === englishEmbed) {
+      return {
+        data: `<script>const datas = "${abyssOuterData("_c4U7yC-K", media)}";</script>`,
+      };
+    }
+    if (url === japaneseEmbed) {
+      return {
+        data: `<script>const datas = "${abyssOuterData("LtCxAdrZM", media)}";</script>`,
+      };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  axios.post = async (url) => {
+    assert.equal(
+      url,
+      `https://ravok.buzz/player/index.php?data=${ravokToken}&do=getVideo`,
+    );
+    return { data: "<title>Error</title>Video not found." };
+  };
+
+  const result = await provider.fetchEpisodeSources("ep:as:black-torch-1x1");
+  assert.equal(result.sources.length, 2);
+  assert.equal(result.sources[0].quality, "1080p");
+  assert.equal(result.sources[0].type, "dub");
+  assert.equal(result.sources[0].name, "Anime Salt Abyss (English)");
+  assert.equal(result.sources[1].type, "sub");
+  assert.equal(result.sources[1].name, "Anime Salt Abyss (Japanese)");
+  assert.deepEqual(result.sources[0].headers, {
+    Referer: "https://player.abyssplayer.com/",
+  });
+  assert.equal(result.sources[0].headers.Origin, undefined);
+  assert.equal(result.subtitles.length, 0);
+
+  const sourceUrl = new URL(result.sources[0].url);
+  assert.equal(sourceUrl.hostname, "weifxopsn26.sssrr.org");
+  assert.match(sourceUrl.pathname, /^\/sora\/708094739\//);
+  const token = sourceUrl.pathname.split("/").at(-1);
+  assert.equal(
+    decryptAbyssToken(token, 708094739),
+    "/mp4/31763016/5/708094739?v=_c4U7yC-K",
+  );
 });
