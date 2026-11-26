@@ -275,7 +275,10 @@ async function buildRavokResult(video, sourcePlayerHost, sourceName) {
           ? `${sourceName} HLS (SUB + DUB)`
           : `${sourceName} HLS (SUB)`,
         type: video.hasEnglishDub ? "dub" : "sub",
-        isM3U8: /\.m3u8/i.test(video.url),
+        // Ravok always hands out an HLS manifest, even when the link has no
+        // ".m3u8" suffix (e.g. /hls/<token>). Players must not guess from the
+        // URL or they play the playlist as a plain video file.
+        isM3U8: true,
         headers: {
           Referer: `${sourcePlayerHost}/`,
           Origin: sourcePlayerHost,
@@ -379,22 +382,29 @@ async function resolveAbyssEmbed(embed) {
       .sort((left, right) => {
         const height = (row) =>
           Number(String(row.label || "").match(/\d+/)?.[0] || row.res_id || 0);
-        return height(left) - height(right) || Number(left.size) - Number(right.size);
+        return (
+          height(right) - height(left) || Number(right.size) - Number(left.size)
+        );
       });
-    const row = rows.at(-1);
-    if (!row) return null;
-    const url = abyssMediaUrl(payload, row);
-    if (!url) return null;
     const language = String(embed.language || "");
-    return {
-      url,
-      quality: String(row.label || "default"),
-      name: `Anime Salt Abyss${language ? ` (${language})` : ""}`,
-      type: language ? (/japanese/i.test(language) ? "sub" : "dub") : "sub",
-      lang: language,
-      isM3U8: false,
-      headers: { Referer: `${abyssPlayerHost}/` },
-    };
+    // Every quality row is its own direct file - expose them all so the app
+    // can offer 1080p/720p/480p instead of only the highest one.
+    const sources = [];
+    for (const row of rows) {
+      const url = abyssMediaUrl(payload, row);
+      if (!url) continue;
+      sources.push({
+        url,
+        quality: String(row.label || "default"),
+        name: `Anime Salt Abyss${language ? ` (${language})` : ""}`,
+        type: language ? (/japanese/i.test(language) ? "sub" : "dub") : "sub",
+        lang: language,
+        isM3U8: false,
+        headers: { Referer: `${abyssPlayerHost}/` },
+      });
+    }
+    if (!sources.length) return null;
+    return sources;
   } catch (_) {
     return null;
   }
@@ -606,8 +616,13 @@ async function AnimeInfo(id) {
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const hasEnglishDub = parseSeriesLanguages(html).some((language) =>
+  const seriesLanguages = parseSeriesLanguages(html);
+  const hasEnglishDub = seriesLanguages.some((language) =>
     /^english$/i.test(language),
+  );
+  // Languages beyond the app's SUB/DUB (English) - the site lists them per title.
+  const otherLanguages = seriesLanguages.filter(
+    (language) => !/^english$/i.test(language),
   );
   const { episodes } = await fetchEpisode(slug);
   return {
@@ -623,6 +638,9 @@ async function AnimeInfo(id) {
     hasSub: true,
     hasDub: hasEnglishDub,
     subOrDub: hasEnglishDub ? "both" : "sub",
+    // Opt the title into the app's "Others" picker.
+    hasOtherLanguages: otherLanguages.length > 0,
+    otherLanguages,
   };
 }
 
@@ -649,8 +667,9 @@ async function fetchEpisodeSources(episodeId) {
     }
     const sources = [];
     for (const embed of embeds.abyssEmbeds) {
-      const source = await resolveAbyssEmbed(embed);
-      if (source) sources.push(source);
+      const resolved = await resolveAbyssEmbed(embed);
+      if (!resolved) continue;
+      sources.push(...resolved);
     }
     return { sources, subtitles: [] };
   }

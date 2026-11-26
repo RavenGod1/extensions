@@ -181,6 +181,10 @@ async function AnimeInfo(id) {
     $("article.post.single img").first().attr("src") ||
     null;
   const hasEnglish = languages.some((language) => /^english$/i.test(language));
+  // Languages beyond the app's SUB/DUB (English) - the site lists them per title.
+  const otherLanguages = languages.filter(
+    (language) => !/^english$/i.test(language),
+  );
   return {
     id: slug,
     title,
@@ -194,6 +198,9 @@ async function AnimeInfo(id) {
     hasSub: true,
     hasDub: hasEnglish,
     subOrDub: hasEnglish ? "both" : "sub",
+    // Opt the title into the app's "Others" picker.
+    hasOtherLanguages: otherLanguages.length > 0,
+    otherLanguages,
   };
 }
 

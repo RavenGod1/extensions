@@ -173,6 +173,10 @@ async function AnimeInfo(id) {
       hasSub: false,
       hasDub: true,
       subOrDub: "dub",
+      // Every title on this site is Hindi dubbed - opt the title into the
+      // app's "Others" picker.
+      hasOtherLanguages: true,
+      otherLanguages: ["Hindi"],
     };
   }
   const { slug, html } = watch;
@@ -206,6 +210,9 @@ async function AnimeInfo(id) {
     hasSub: false,
     hasDub: true,
     subOrDub: "dub",
+    // Opt the title into the app's "Others" picker.
+    hasOtherLanguages: true,
+    otherLanguages: ["Hindi"],
   };
 }
 

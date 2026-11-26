@@ -211,6 +211,8 @@ test("fetchEpisodeSources exposes English subtitles as valid WebVTT", async () =
   assert.equal(result.sources[0].url, masterUrl);
   // The quality comes from the master's highest rendition, not "default".
   assert.equal(result.sources[0].quality, "1080p");
+  // A manifest without a ".m3u8" suffix is still HLS - players must be told.
+  assert.equal(result.sources[0].isM3U8, true);
   assert.equal(result.subtitles.length, 1);
   assert.equal(result.subtitles[0].lang, "English");
   assert.match(result.subtitles[0].url, /^data:text\/vtt;base64,/);
@@ -446,12 +448,17 @@ test("fetchEpisodeSources falls back from a broken Ravok embed to Anime Salt Aby
   };
 
   const result = await provider.fetchEpisodeSources("ep:as:black-torch-1x1");
-  assert.equal(result.sources.length, 2);
+  // Every quality row of every embed is its own source (best first).
+  assert.equal(result.sources.length, 4);
   assert.equal(result.sources[0].quality, "1080p");
   assert.equal(result.sources[0].type, "dub");
   assert.equal(result.sources[0].name, "Anime Salt Abyss (English)");
-  assert.equal(result.sources[1].type, "sub");
-  assert.equal(result.sources[1].name, "Anime Salt Abyss (Japanese)");
+  assert.equal(result.sources[1].quality, "720p");
+  assert.equal(result.sources[1].type, "dub");
+  assert.equal(result.sources[1].name, "Anime Salt Abyss (English)");
+  assert.equal(result.sources[2].type, "sub");
+  assert.equal(result.sources[2].quality, "1080p");
+  assert.equal(result.sources[2].name, "Anime Salt Abyss (Japanese)");
   assert.deepEqual(result.sources[0].headers, {
     Referer: "https://player.abyssplayer.com/",
   });
@@ -466,4 +473,8 @@ test("fetchEpisodeSources falls back from a broken Ravok embed to Anime Salt Aby
     decryptAbyssToken(token, 708094739),
     "/mp4/31763016/5/708094739?v=_c4U7yC-K",
   );
+
+  // The 720p row is a separate direct file with its own size in the path.
+  const lowerUrl = new URL(result.sources[1].url);
+  assert.match(lowerUrl.pathname, /^\/sora\/251823817\//);
 });
