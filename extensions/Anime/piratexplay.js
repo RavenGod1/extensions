@@ -536,7 +536,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.1",
+  version: "1.0.2",
   baseUrl,
   headerRules: [
     { match: ["piratexplay.cc"], headers: { Referer: `${baseUrl}/` } },

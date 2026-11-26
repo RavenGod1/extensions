@@ -279,7 +279,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.4",
+  version: "1.0.5",
   baseUrl,
   headerRules: [
     {

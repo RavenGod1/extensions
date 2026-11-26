@@ -16,21 +16,21 @@
     },
     {
       "name": "anixohindi",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "MinAppVersion": "11.0.0",
       "statuses": ["Hindi Dub"],
       "disabled": false
     },
     {
       "name": "animeworldindia",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "MinAppVersion": "12.1.9",
       "statuses": ["Multi Audio", "HLS"],
       "disabled": false
     },
     {
       "name": "piratexplay",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "MinAppVersion": "12.1.8",
       "statuses": ["Multi Audio", "HLS"],
       "disabled": false

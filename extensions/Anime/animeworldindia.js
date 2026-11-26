@@ -689,7 +689,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.6",
+  version: "1.0.7",
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },
