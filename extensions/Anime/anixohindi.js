@@ -279,7 +279,9 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.5",
+  version: "1.0.6",
+  // Languages the app can offer in its "Others" picker.
+  statuses: ["Hindi Dub"],
   baseUrl,
   headerRules: [
     {

@@ -689,7 +689,9 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.7",
+  version: "1.0.8",
+  // Languages the app can offer in its "Others" picker.
+  statuses: ["Multi Audio", "HLS"],
   baseUrl,
   headerRules: [
     { match: ["watchanimeworld.one"], headers: { Referer: `${baseUrl}/` } },

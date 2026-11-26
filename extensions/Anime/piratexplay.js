@@ -536,7 +536,9 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.2",
+  version: "1.0.3",
+  // Languages the app can offer in its "Others" picker.
+  statuses: ["Multi Audio", "HLS"],
   baseUrl,
   headerRules: [
     { match: ["piratexplay.cc"], headers: { Referer: `${baseUrl}/` } },

@@ -723,7 +723,9 @@ async function onInfoFetched({ id, info, mappingDb }) {
 
 module.exports = {
   name: "animekai",
-  version: "1.1.5",
+  version: "1.1.6",
+  // Languages the app can offer in its "Others" picker.
+  statuses: ["Sub & Dub", "Hardsub"],
   baseUrl,
   headerRules: [
     {

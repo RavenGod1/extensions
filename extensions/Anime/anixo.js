@@ -349,7 +349,9 @@ async function fetchRecentEpisodes(filters = {}) {
 
 module.exports = {
   name: "anixo",
-  version: "1.0.4",
+  version: "1.0.5",
+  // Languages the app can offer in its "Others" picker.
+  statuses: ["Sub & Dub", "HLS"],
   baseUrl,
   headerRules: [
     { match: ["anixo.buzz"], headers: { Referer: `${baseUrl}/` } },
