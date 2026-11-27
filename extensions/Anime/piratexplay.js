@@ -364,7 +364,13 @@ function variantWithAudio(variantUrl, token) {
   }
 }
 
-function buildLanguageSources(masterUrl, manifest, languageRows, referer) {
+function buildLanguageSources(
+  masterUrl,
+  manifest,
+  languageRows,
+  referer,
+  server = "RUBSTM",
+) {
   const variants = parseHlsVariants(manifest, masterUrl).sort(
     (a, b) => b.height - a.height,
   );
@@ -393,8 +399,9 @@ function buildLanguageSources(masterUrl, manifest, languageRows, referer) {
     sources.push({
       url: variant.url,
       quality: variant.quality,
-      name: `PirateXPlay ${name}`,
-      server: `PirateXPlay ${name}`,
+      // The server is the mirror, the language is the audio track inside it.
+      name: `${server} · ${name}`,
+      server,
       type: "dub",
       language: code || name.toLowerCase(),
       lang: name,
@@ -493,6 +500,7 @@ async function fetchEpisodeSources(episodeId) {
         manifest,
         languageRows,
         resolved.referer,
+        "RUBSTM",
       );
       if (sources.length) return { sources, subtitles: [] };
     } catch (_) {}
@@ -514,8 +522,8 @@ async function fetchEpisodeSources(episodeId) {
           {
             url: resolved.masterUrl,
             quality: "default",
-            name: "PirateXPlay Vidmoly",
-            server: "PirateXPlay Vidmoly",
+            name: "VIDMOLY · Multi Audio",
+            server: "VIDMOLY",
             type: "sub",
             language: "multi",
             lang: "Multi Audio",
@@ -536,7 +544,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.3",
+  version: "1.0.4",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Multi Audio", "HLS"],
   baseUrl,

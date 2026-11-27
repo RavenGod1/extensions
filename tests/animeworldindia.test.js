@@ -368,7 +368,9 @@ test("fetchEpisode falls back to Anime Salt when Anime World India has no episod
   assert.equal(result.sources[0].url, masterUrl);
   assert.equal(result.sources[0].quality, "1080p");
   assert.equal(result.sources[0].type, "dub");
-  assert.equal(result.sources[0].name, "Anime Salt HLS (SUB + DUB)");
+  // The server is the mirror (the site's "SERVER 1 HLS").
+  assert.equal(result.sources[0].server, "HLS");
+  assert.equal(result.sources[0].name, "HLS · Anime Salt (SUB + DUB)");
   assert.equal(result.sources[0].headers.Referer, "https://ravok.buzz/");
   assert.equal(result.subtitles.length, 1);
   assert.equal(result.subtitles[0].lang, "English");
@@ -452,13 +454,15 @@ test("fetchEpisodeSources falls back from a broken Ravok embed to Anime Salt Aby
   assert.equal(result.sources.length, 4);
   assert.equal(result.sources[0].quality, "1080p");
   assert.equal(result.sources[0].type, "dub");
-  assert.equal(result.sources[0].name, "Anime Salt Abyss (English)");
+  // The server is the mirror, the language is the audio track inside it.
+  assert.equal(result.sources[0].server, "ABYSS");
+  assert.equal(result.sources[0].name, "ABYSS · English");
   assert.equal(result.sources[1].quality, "720p");
   assert.equal(result.sources[1].type, "dub");
-  assert.equal(result.sources[1].name, "Anime Salt Abyss (English)");
+  assert.equal(result.sources[1].name, "ABYSS · English");
   assert.equal(result.sources[2].type, "sub");
   assert.equal(result.sources[2].quality, "1080p");
-  assert.equal(result.sources[2].name, "Anime Salt Abyss (Japanese)");
+  assert.equal(result.sources[2].name, "ABYSS · Japanese");
   assert.deepEqual(result.sources[0].headers, {
     Referer: "https://player.abyssplayer.com/",
   });

@@ -271,9 +271,9 @@ async function buildRavokResult(video, sourcePlayerHost, sourceName) {
       {
         url: video.url,
         quality: video.quality,
-        name: video.hasEnglishDub
-          ? `${sourceName} HLS (SUB + DUB)`
-          : `${sourceName} HLS (SUB)`,
+        // The server is the mirror (the site's "SERVER 1 HLS"), not the title.
+        name: `HLS · ${sourceName}${video.hasEnglishDub ? " (SUB + DUB)" : ""}`,
+        server: "HLS",
         type: video.hasEnglishDub ? "dub" : "sub",
         // Ravok always hands out an HLS manifest, even when the link has no
         // ".m3u8" suffix (e.g. /hls/<token>). Players must not guess from the
@@ -396,7 +396,10 @@ async function resolveAbyssEmbed(embed) {
       sources.push({
         url,
         quality: String(row.label || "default"),
-        name: `Anime Salt Abyss${language ? ` (${language})` : ""}`,
+        // The server is the mirror (the site's "SERVER 2 ABYSS"), the language
+        // is the audio track inside it.
+        name: `ABYSS · ${language || "Anime Salt"}`,
+        server: "ABYSS",
         type: language ? (/japanese/i.test(language) ? "sub" : "dub") : "sub",
         lang: language,
         isM3U8: false,
@@ -689,7 +692,7 @@ async function fetchEpisodeSources(episodeId) {
 
 module.exports = {
   name: "animeworldindia",
-  version: "1.0.8",
+  version: "1.0.9",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Multi Audio", "HLS"],
   baseUrl,

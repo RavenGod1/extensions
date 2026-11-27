@@ -267,8 +267,11 @@ async function fetchEpisodeSources(episodeId, category = null) {
       {
         url,
         quality: "default",
-        name: "AniXoHindi Hindi Dub",
+        // The server is the mirror, the language is the audio track.
+        name: "AniXoHindi · Hindi Dub",
+        server: "AniXoHindi",
         type: "dub",
+        lang: "Hindi",
         isM3U8: /\.m3u8/i.test(url),
         headers: { Referer: `${embedHost}/` },
       },
@@ -279,7 +282,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "anixohindi",
-  version: "1.0.6",
+  version: "1.0.7",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Hindi Dub"],
   baseUrl,

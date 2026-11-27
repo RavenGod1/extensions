@@ -282,8 +282,9 @@ test("fetchEpisodeSources resolves the Rubystm mirror into a Hindi HLS track", a
     "https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_h/index-v1-a2.m3u8?t=token",
   );
   assert.equal(result.sources[0].quality, "720p");
-  assert.equal(result.sources[0].name, "PirateXPlay Hindi");
-  assert.equal(result.sources[0].server, "PirateXPlay Hindi");
+  // The server is the mirror, the language is the audio track inside it.
+  assert.equal(result.sources[0].name, "RUBSTM · Hindi");
+  assert.equal(result.sources[0].server, "RUBSTM");
   assert.equal(result.sources[0].language, "hi");
   assert.equal(result.sources[0].lang, "Hindi");
   assert.equal(result.sources[0].type, "dub");
