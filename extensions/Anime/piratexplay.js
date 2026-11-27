@@ -3,10 +3,14 @@
  * Catalogue from /category/latest (series cards), search from the site's own
  * /api/search-ajax.php?keyword= endpoint, episodes from the series page and
  * streams through the live episode mirrors: episode page -> Rubystm embed ->
- * POST /dl -> signed multi-audio HLS master. Each audio language is returned
- * as its own playable HLS variant; Vidmoly is the HLS fallback.
+ * POST /dl -> signed multi-audio HLS master. Every audio track of that master
+ * is its own playable HLS variant (Japanese = SUB, English = DUB, the rest are
+ * the other languages) and every resolution is exposed. The site's
+ * "Multi Audio" mirror links one player per language, each with its own
+ * direct files; Vidmoly is the HLS fallback.
  */
 const cheerio = require("cheerio");
+const crypto = require("crypto");
 const axios = global.axios || require("axios");
 
 const baseUrl = "https://piratexplay.cc";
@@ -14,17 +18,39 @@ const rubystmHost = "https://rubystm.com";
 const browserUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36";
 
+// The site and the HLS manifests spell the same language in different ways
+// ("English"/"en"/"eng", "Japanese"/"ja"/"jpn").
 const languageCodes = {
   bengali: "bn",
+  bn: "bn",
   english: "en",
+  en: "en",
+  eng: "en",
   hindi: "hi",
+  hi: "hi",
+  hin: "hi",
   japanese: "ja",
+  ja: "ja",
+  jpn: "ja",
+  jp: "ja",
   kannada: "kn",
+  kn: "kn",
+  kan: "kn",
   korean: "ko",
+  ko: "ko",
+  kor: "ko",
   malayalam: "ml",
+  ml: "ml",
+  mal: "ml",
   marathi: "mr",
+  mr: "mr",
+  mar: "mr",
   tamil: "ta",
+  ta: "ta",
+  tam: "ta",
   telugu: "te",
+  te: "te",
+  tel: "te",
 };
 
 const languageNames = {
@@ -181,9 +207,12 @@ async function AnimeInfo(id) {
     $("article.post.single img").first().attr("src") ||
     null;
   const hasEnglish = languages.some((language) => /^english$/i.test(language));
-  // Languages beyond the app's SUB/DUB (English) - the site lists them per title.
+  // The Japanese track is the SUB version; the site lists it per title.
+  const hasJapanese = languages.some((language) => /^japanese$/i.test(language));
+  // Languages beyond the app's SUB/DUB (English/Japanese) - the site lists
+  // them per title.
   const otherLanguages = languages.filter(
-    (language) => !/^english$/i.test(language),
+    (language) => !/^(english|japanese)$/i.test(language),
   );
   return {
     id: slug,
@@ -195,9 +224,10 @@ async function AnimeInfo(id) {
     year,
     type: "TV",
     totalEpisodes: $("ul#episode_by_temp a.lnk-blk").length || null,
-    hasSub: true,
+    hasSub: languages.length ? hasJapanese : true,
     hasDub: hasEnglish,
-    subOrDub: hasEnglish ? "both" : "sub",
+    subOrDub:
+      hasEnglish && hasJapanese ? "both" : hasEnglish ? "dub" : "sub",
     // Opt the title into the app's "Others" picker.
     hasOtherLanguages: otherLanguages.length > 0,
     otherLanguages,
@@ -288,6 +318,40 @@ function parseEpisodeMirrors(html) {
   return mirrors;
 }
 
+// The episode page lists every server of the site ("Rubystm - Multi Audio",
+// "Multi Audio - Multi Audio", ...) with the player iframe next to it.
+function parseServerList(html) {
+  const $ = cheerio.load(html);
+  const players = new Map();
+  $("div[id^='options-']").each((_, element) => {
+    const id = $(element).attr("id") || "";
+    const frame = $(element).find("iframe").first();
+    const raw = frame.attr("src") || frame.attr("data-src");
+    if (!id || !raw) return;
+    try {
+      players.set(id, new URL(raw, baseUrl).href);
+    } catch (_) {}
+  });
+  const servers = [];
+  $("ul.aa-tbs-video a.btn").each((_, element) => {
+    const href = $(element).attr("href") || "";
+    const id = href.startsWith("#") ? href.slice(1) : "";
+    const url = players.get(id);
+    if (!url) return;
+    const label = $(element).find("span.server").first().text().trim();
+    servers.push({ label, url });
+  });
+  return servers;
+}
+
+// "Rubystm - Multi Audio" -> "Rubystm"
+function serverName(label, fallback = "") {
+  const clean = String(label || "")
+    .split("-")[0]
+    .trim();
+  return clean || fallback;
+}
+
 function decodeMultiPayload(url) {
   try {
     const encoded = new URL(url, baseUrl).searchParams.get("data");
@@ -340,6 +404,40 @@ function languageCode(name) {
   return languageCodes[value] || (/^[a-z]{2,3}$/.test(value) ? value : "");
 }
 
+function isEnglishTrack(code, name) {
+  const value = String(code || "").trim().toLowerCase();
+  return value === "en" || /english/i.test(String(name || ""));
+}
+
+// The track with the original Japanese audio is the SUB version, every other
+// track is dubbed audio. The app picks the version by this field, so a SUB
+// request must never be answered with the English track.
+function trackVersion(code, name) {
+  const value = String(code || "").trim().toLowerCase();
+  if (value === "ja") return "sub";
+  return /japanese/i.test(String(name || "")) ? "sub" : "dub";
+}
+
+// The app asks for one version at a time: sub = Japanese audio, dub = English.
+function languageWanted(code, name, category) {
+  const want = String(category || "").trim().toLowerCase();
+  if (!want || want === "both") return true;
+  if (want === "sub") {
+    return String(code || "").trim().toLowerCase() === "ja" ||
+      /japanese/i.test(String(name || ""));
+  }
+  if (want === "dub") return isEnglishTrack(code, name);
+  return false;
+}
+
+function filterByCategory(sources, category) {
+  const want = String(category || "").trim().toLowerCase();
+  if (!want || want === "both") return sources;
+  return sources.filter((source) =>
+    languageWanted(source.language, source.lang, want),
+  );
+}
+
 function audioToken(uri, manifestUrl) {
   try {
     const path = new URL(uri, manifestUrl).pathname;
@@ -364,50 +462,48 @@ function variantWithAudio(variantUrl, token) {
   }
 }
 
+// One source per audio track and per resolution: the variant URL carries the
+// audio token, so the language is picked by rewriting it. The tracks of the
+// master are authoritative - the site may list fewer languages than the
+// stream carries.
 function buildLanguageSources(
   masterUrl,
   manifest,
-  languageRows,
   referer,
-  server = "RUBSTM",
+  server = "Rubystm",
 ) {
   const variants = parseHlsVariants(manifest, masterUrl).sort(
     (a, b) => b.height - a.height,
   );
-  const requested = new Map();
-  for (const row of languageRows) {
-    const code = languageCode(row.language);
-    if (code) requested.set(code, row.language);
-  }
 
   const sources = [];
   const seen = new Set();
   for (const track of parseHlsTracks(manifest)) {
     if (String(track.TYPE || "").toUpperCase() !== "AUDIO") continue;
     const code = languageCode(track.LANGUAGE) || languageCode(track.NAME);
-    if (requested.size && !requested.has(code)) continue;
+    if (!code) continue;
     const token = audioToken(track.URI, masterUrl);
     if (!token) continue;
-    const variant = variants
-      .map((item) => ({ ...item, url: variantWithAudio(item.url, token) }))
-      .find((item) => item.url);
-    if (!variant) continue;
-    const key = code || track.NAME;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const name = languageNames[code] || requested.get(code) || track.NAME || code;
-    sources.push({
-      url: variant.url,
-      quality: variant.quality,
-      // The server is the mirror, the language is the audio track inside it.
-      name: `${server} · ${name}`,
-      server,
-      type: "dub",
-      language: code || name.toLowerCase(),
-      lang: name,
-      isM3U8: true,
-      headers: { Referer: referer, "User-Agent": browserUserAgent },
-    });
+    const name = languageNames[code] || track.NAME || code;
+    for (const variant of variants) {
+      const url = variantWithAudio(variant.url, token);
+      if (!url) continue;
+      const key = `${code}|${variant.quality}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sources.push({
+        url,
+        quality: variant.quality,
+        // The server is the mirror, the language is the audio track inside it.
+        name: `${server} · ${name}`,
+        server,
+        type: trackVersion(code, name),
+        language: code,
+        lang: name,
+        isM3U8: true,
+        headers: { Referer: referer, "User-Agent": browserUserAgent },
+      });
+    }
   }
   return sources;
 }
@@ -461,7 +557,143 @@ async function resolveVidmoly(mirrorUrl) {
   return masterUrl ? { masterUrl, referer: mirrorUrl } : null;
 }
 
-async function fetchEpisodeSources(episodeId) {
+// The "Multi Audio" mirror links one player per language; every player page
+// carries the list of its own files (360p/720p/1080p).
+function parseAbyssPayload(html) {
+  const match = String(html || "").match(/const\s+datas\s*=\s*"([^"]+)"/);
+  if (!match) return null;
+  try {
+    const outer = JSON.parse(
+      Buffer.from(match[1], "base64").toString("latin1"),
+    );
+    if (!outer?.slug || outer.md5_id == null || outer.user_id == null) {
+      return null;
+    }
+    if (outer.media && typeof outer.media === "object") return outer;
+    const encrypted = Buffer.from(
+      Array.from(String(outer.media || ""), (character) => character.charCodeAt(0) & 0xff),
+    );
+    const keyText = crypto
+      .createHash("md5")
+      .update(`${outer.user_id}:${outer.slug}:${outer.md5_id}`)
+      .digest("hex");
+    const key = Buffer.from(keyText, "ascii");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-ctr",
+      key,
+      key.subarray(0, 16),
+    );
+    const media = JSON.parse(
+      Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8"),
+    );
+    return { ...outer, media };
+  } catch (_) {
+    return null;
+  }
+}
+
+function abyssPathToken(path, size) {
+  const numberMd5 = crypto
+    .createHash("md5")
+    .update(
+      Buffer.from(
+        Array.from(String(size), (digit) => Number(digit)),
+      ),
+    )
+    .digest("hex");
+  const key = Buffer.from(numberMd5, "utf8");
+  const cipher = crypto.createCipheriv("aes-256-ctr", key, key.subarray(0, 16));
+  const encrypted = Buffer.concat([
+    cipher.update(path, "utf8"),
+    cipher.final(),
+  ]);
+  const once = Buffer.from(encrypted)
+    .toString("base64")
+    .replace(/=+$/, "");
+  return Buffer.from(once, "utf8")
+    .toString("base64")
+    .replace(/=+$/, "");
+}
+
+function abyssMediaUrl(payload, row) {
+  const size = Number(row.size);
+  const resId = Number(row.res_id);
+  if (!size || !resId || !payload.slug) return null;
+  const domains = payload.media?.mp4?.domains || [];
+  const sub = String(row.sub || "");
+  const domain =
+    domains.find((value) => value === sub || value.startsWith(`${sub}.`)) ||
+    domains[0] ||
+    (() => {
+      try {
+        return new URL(row.url).hostname;
+      } catch (_) {
+        return "";
+      }
+    })();
+  if (!domain) return null;
+  let host;
+  try {
+    host = new URL(domain.includes("://") ? domain : `https://${domain}`).hostname;
+  } catch (_) {
+    return null;
+  }
+  const mediaPath = `/mp4/${payload.md5_id}/${resId}/${size}?v=${encodeURIComponent(payload.slug)}`;
+  return `https://${host}/sora/${size}/${abyssPathToken(mediaPath, size)}`;
+}
+
+async function resolveAbyssEmbed(embedUrl, language, server) {
+  try {
+    // The site hands out http links for the players, they only answer on https.
+    const url = String(embedUrl).replace(/^http:\/\//i, "https://");
+    const html = await fetchText(url, {
+      Referer: `${baseUrl}/`,
+      "User-Agent": browserUserAgent,
+    });
+    const payload = parseAbyssPayload(html);
+    if (!payload) return [];
+    const rows = (payload.media?.mp4?.sources || [])
+      .filter((row) => row?.status !== false && Number(row.size) > 0)
+      .sort((left, right) => {
+        const height = (row) =>
+          Number(String(row.label || "").match(/\d+/)?.[0] || row.res_id || 0);
+        return (
+          height(right) - height(left) || Number(right.size) - Number(left.size)
+        );
+      });
+    const code = languageCode(language);
+    const sources = [];
+    for (const row of rows) {
+      const url = abyssMediaUrl(payload, row);
+      if (!url) continue;
+      sources.push({
+        url,
+        quality: String(row.label || "default"),
+        // The server is the mirror, the language is the file inside it.
+        name: `${server} · ${language}`,
+        server,
+        type: trackVersion(code, language),
+        language: code,
+        lang: language,
+        isM3U8: false,
+        headers: { Referer: "https://player.abyssplayer.com/" },
+      });
+    }
+    return sources;
+  } catch (_) {
+    return [];
+  }
+}
+
+function hostMatches(url, suffix) {
+  try {
+    return new URL(url).hostname.endsWith(suffix);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function fetchEpisodeSources(episodeId, category = null) {
   const slug = String(episodeId).replace(/^\/episode\//, "").replace(/\/+$/, "");
   const episodeUrl = `${baseUrl}/episode/${slug}/`;
   let html = "";
@@ -471,7 +703,15 @@ async function fetchEpisodeSources(episodeId) {
     return { sources: [], subtitles: [] };
   }
 
-  const mirrors = parseEpisodeMirrors(html);
+  const servers = parseServerList(html);
+  const mirrors = servers.length
+    ? servers.map((entry) => entry.url)
+    : parseEpisodeMirrors(html);
+  const nameOf = (url) => {
+    const entry = servers.find((item) => item.url === url);
+    return serverName(entry?.label || "", "");
+  };
+
   const multiUrl = mirrors.find((url) => url.includes("/proxy/multi.php"));
   let languageRows = multiUrl ? decodeMultiPayload(multiUrl) : [];
   if (!languageRows.length && multiUrl) {
@@ -480,14 +720,11 @@ async function fetchEpisodeSources(episodeId) {
     } catch (_) {}
   }
 
-  const rubystmMirrors = mirrors.filter((url) => {
-    try {
-      return new URL(url).hostname.endsWith("rubystm.com");
-    } catch (_) {
-      return false;
-    }
-  });
-  for (const mirrorUrl of rubystmMirrors) {
+  const sources = [];
+
+  // Rubystm: one multi-audio HLS master with every language and resolution.
+  for (const mirrorUrl of mirrors) {
+    if (!hostMatches(mirrorUrl, "rubystm.com")) continue;
     try {
       const resolved = await resolveRubystm(mirrorUrl);
       if (!resolved) continue;
@@ -495,35 +732,59 @@ async function fetchEpisodeSources(episodeId) {
         Referer: resolved.referer,
         "User-Agent": browserUserAgent,
       });
-      const sources = buildLanguageSources(
+      const built = buildLanguageSources(
         resolved.masterUrl,
         manifest,
-        languageRows,
         resolved.referer,
-        "RUBSTM",
+        nameOf(mirrorUrl) || "Rubystm",
       );
-      if (sources.length) return { sources, subtitles: [] };
+      if (built.length) {
+        sources.push(...built);
+        break;
+      }
     } catch (_) {}
   }
 
-  const vidmolyMirrors = mirrors.filter((url) => {
+  // Multi Audio: the site links one player per language, each with its own files.
+  for (const row of languageRows) {
+    const code = languageCode(row.language);
+    if (!code) continue;
+    if (!languageWanted(code, row.language, category)) continue;
     try {
-      return new URL(url).hostname.includes("vidmoly.");
-    } catch (_) {
-      return false;
-    }
-  });
-  for (const mirrorUrl of vidmolyMirrors) {
-    try {
-      const resolved = await resolveVidmoly(mirrorUrl);
-      if (!resolved) continue;
-      return {
-        sources: [
-          {
+      const built = await resolveAbyssEmbed(
+        row.link,
+        row.language,
+        nameOf(multiUrl) || "Multi Audio",
+      );
+      if (built.length) sources.push(...built);
+    } catch (_) {}
+  }
+
+  // Vidmoly: the last HLS mirror.
+  if (!sources.length) {
+    for (const mirrorUrl of mirrors) {
+      if (!hostMatches(mirrorUrl, "vidmoly.")) continue;
+      try {
+        const resolved = await resolveVidmoly(mirrorUrl);
+        if (!resolved) continue;
+        const manifest = await fetchText(resolved.masterUrl, {
+          Referer: resolved.referer,
+          "User-Agent": browserUserAgent,
+        }).catch(() => "");
+        const built = buildLanguageSources(
+          resolved.masterUrl,
+          manifest,
+          resolved.referer,
+          nameOf(mirrorUrl) || "Vidmoly",
+        );
+        if (built.length) {
+          sources.push(...built);
+        } else {
+          sources.push({
             url: resolved.masterUrl,
             quality: "default",
-            name: "VIDMOLY · Multi Audio",
-            server: "VIDMOLY",
+            name: `${nameOf(mirrorUrl) || "Vidmoly"} · Multi Audio`,
+            server: nameOf(mirrorUrl) || "Vidmoly",
             type: "sub",
             language: "multi",
             lang: "Multi Audio",
@@ -532,19 +793,19 @@ async function fetchEpisodeSources(episodeId) {
               Referer: resolved.referer,
               "User-Agent": browserUserAgent,
             },
-          },
-        ],
-        subtitles: [],
-      };
-    } catch (_) {}
+          });
+        }
+        break;
+      } catch (_) {}
+    }
   }
 
-  return { sources: [], subtitles: [] };
+  return { sources: filterByCategory(sources, category), subtitles: [] };
 }
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.4",
+  version: "1.0.5",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Multi Audio", "HLS"],
   baseUrl,
@@ -567,6 +828,20 @@ module.exports = {
     {
       match: ["vmpx.online"],
       headers: { "User-Agent": browserUserAgent },
+    },
+    {
+      match: ["player.abyssplayer.com", "abyssplayer.com"],
+      headers: {
+        Referer: `${baseUrl}/`,
+        "User-Agent": browserUserAgent,
+      },
+    },
+    {
+      match: ["sssrr.org"],
+      headers: {
+        Referer: "https://player.abyssplayer.com/",
+        "User-Agent": browserUserAgent,
+      },
     },
   ],
   SearchAnime,
