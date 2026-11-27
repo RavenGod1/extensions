@@ -181,6 +181,16 @@ https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-v1-a2.m
 #EXT-X-STREAM-INF:BANDWIDTH=1372629,RESOLUTION=944x720,CODECS="avc1.640020,mp4a.40.2",AUDIO="audio0"
 https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_h/index-v1-a2.m3u8?t=token`;
 
+// A master that also carries a subtitle rendition.
+const masterWithSubtitles = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio0",NAME="English",LANGUAGE="en",AUTOSELECT=YES,DEFAULT=YES,URI="https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-a1.m3u8?t=token"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio0",NAME="Japanese",LANGUAGE="ja",AUTOSELECT=NO,DEFAULT=NO,URI="https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-a5.m3u8?t=token"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="Japanese",LANGUAGE="ja",AUTOSELECT=YES,URI="https://cdn.example.com/subs/one-piece.ja.vtt"
+#EXT-X-STREAM-INF:BANDWIDTH=486096,RESOLUTION=472x360,CODECS="avc1.64001e,mp4a.40.2",AUDIO="audio0"
+https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_l/index-v1-a2.m3u8?t=token
+#EXT-X-STREAM-INF:BANDWIDTH=1372629,RESOLUTION=944x720,CODECS="avc1.640020,mp4a.40.2",AUDIO="audio0"
+https://rap7c5roebejl0.streamruby.net/hls2/01/00116/szgmsvygk9vs_h/index-v1-a2.m3u8?t=token`;
+
 // The "Multi Audio" player page carries its file list base64 encoded.
 function abyssPlayerPage(slug, sources) {
   const payload = {
@@ -384,6 +394,43 @@ test("an episode page without the server list still resolves the Rubystm mirror"
     result.sources.map((source) => source.quality).sort(),
     ["360p", "720p"],
   );
+});
+
+test("the Ravok player page and the HLS master provide the subtitle files", async () => {
+  axios.get = async (url) => {
+    if (url.includes("/episode/one-piece-season-1-37854-1x1/")) {
+      return { data: episodePageWithServers };
+    }
+    if (url === "https://rubystm.com/e/3hklgq1uj9i6.html") {
+      return {
+        data: rubystmLandingPage,
+        request: { responseUrl: finalUrl },
+      };
+    }
+    if (url === masterUrl) {
+      return { data: masterWithSubtitles };
+    }
+    if (url.startsWith("https://ravok.buzz/video/")) {
+      return {
+        data: `<script>var playerjsSubtitle = "[English]https://cdn.example.com/subs/one-piece.en.vtt";</script>`,
+      };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  axios.post = async () => ({ data: rubystmPlayerPage });
+
+  const result = await provider.fetchEpisodeSources(
+    "one-piece-season-1-37854-1x1",
+    "sub",
+  );
+
+  assert.deepEqual(result.subtitles, [
+    {
+      lang: "Japanese",
+      url: "https://cdn.example.com/subs/one-piece.ja.vtt",
+    },
+    { lang: "English", url: "https://cdn.example.com/subs/one-piece.en.vtt" },
+  ]);
 });
 
 test("a sub request only answers with the Japanese track, a dub request with the English one", async () => {

@@ -508,6 +508,65 @@ function buildLanguageSources(
   return sources;
 }
 
+// The site hands out subtitles in two ways: as HLS subtitle renditions in the
+// master playlist, and as a list in the Ravok player page ("playerjsSubtitle").
+// Both are optional - a server without them simply has no subtitle track.
+function buildHlsSubtitles(masterUrl, manifest) {
+  const subtitles = [];
+  for (const track of parseHlsTracks(manifest)) {
+    if (String(track.TYPE || "").toUpperCase() !== "SUBTITLES" || !track.URI) {
+      continue;
+    }
+    let url = "";
+    try {
+      url = new URL(track.URI, masterUrl).href;
+    } catch (_) {
+      continue;
+    }
+    // A rendition that is a playlist cannot be muxed into a download, only a
+    // real subtitle file can.
+    if (!/\.(vtt|srt)(\?|$)/i.test(url)) continue;
+    subtitles.push({ lang: track.NAME || track.LANGUAGE || "Subtitles", url });
+  }
+  return subtitles;
+}
+
+// The Ravok player lists its subtitle files as a comma separated string, every
+// entry either "[English]https://..." or a bare URL.
+function parsePlayerSubtitles(playerHtml) {
+  const match = String(playerHtml || "").match(
+    /var\s+playerjsSubtitle\s*=\s*("(?:\\.|[^"\\])*")\s*;/,
+  );
+  if (!match) return [];
+  let value = "";
+  try {
+    value = JSON.parse(match[1]);
+  } catch (_) {
+    return [];
+  }
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const labeled = entry.match(/^\[([^\]]+)\]\s*(.+)$/);
+      const url = labeled ? labeled[2] : entry;
+      if (!/^https?:/i.test(url)) return null;
+      return { lang: labeled ? labeled[1] : "English", url };
+    })
+    .filter(Boolean);
+}
+
+// "https://piratexplay.cc/proxy/play.php?url=https://ravok.buzz/video/<token>"
+function ravokToken(mirrorUrl) {
+  try {
+    const inner = new URL(mirrorUrl, baseUrl).searchParams.get("url") || "";
+    return inner.match(/ravok\.buzz\/video\/([A-Za-z0-9]{16,})/)?.[1] || "";
+  } catch (_) {
+    return "";
+  }
+}
+
 async function resolveRubystm(mirrorUrl) {
   const landing = await axios.get(mirrorUrl, {
     timeout: 25000,
@@ -721,6 +780,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
   }
 
   const sources = [];
+  const subtitles = [];
 
   // Rubystm: one multi-audio HLS master with every language and resolution.
   for (const mirrorUrl of mirrors) {
@@ -740,9 +800,26 @@ async function fetchEpisodeSources(episodeId, category = null) {
       );
       if (built.length) {
         sources.push(...built);
+        subtitles.push(...buildHlsSubtitles(resolved.masterUrl, manifest));
         break;
       }
     } catch (_) {}
+  }
+
+  // Ravok: the player page lists the subtitle files of the episode. Its own
+  // master cannot be played as one file per language, but the subtitles work
+  // for every mirror of the same episode.
+  for (const mirrorUrl of mirrors) {
+    const token = ravokToken(mirrorUrl);
+    if (!token) continue;
+    try {
+      const playerHtml = await fetchText(`https://ravok.buzz/video/${token}`, {
+        Referer: `${baseUrl}/`,
+        "User-Agent": browserUserAgent,
+      });
+      subtitles.push(...parsePlayerSubtitles(playerHtml));
+    } catch (_) {}
+    break;
   }
 
   // Multi Audio: the site links one player per language, each with its own files.
@@ -800,12 +877,18 @@ async function fetchEpisodeSources(episodeId, category = null) {
     }
   }
 
-  return { sources: filterByCategory(sources, category), subtitles: [] };
+  return {
+    sources: filterByCategory(sources, category),
+    subtitles: subtitles.filter(
+      (subtitle, index) =>
+        subtitles.findIndex((other) => other.url === subtitle.url) === index,
+    ),
+  };
 }
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.5",
+  version: "1.0.6",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Multi Audio", "HLS"],
   baseUrl,
