@@ -202,6 +202,26 @@ function abyssPlayerPage(slug, sources) {
   return `<script>const datas = "${Buffer.from(JSON.stringify(payload)).toString("base64")}";</script>`;
 }
 
+// The Vidmoly player lists its files in "baseTracks": the captions entry is
+// the subtitle file of the episode.
+const vidmolyPlayerPage = `<script>
+  var baseTracks = [
+    {
+      file: '/api/v1/slides?length=1424&url=https%3A%2F%2Fbox.example.com%2Fthumb.jpg',
+      kind: 'thumbnails'
+    },
+    {
+      file: 'https://srt.vidmoly.me/srt/01924/vz1m7a4x988b_English.vtt',
+      label: 'English',
+      kind: 'captions',
+      "default": true
+    }
+  ];
+  var playerInstance = player.setup({
+    sources: [{ file: 'https://prx.example.com/hls2/01/00116/abc_,n,l,.urlset/master.m3u8?t=token' }]
+  });
+</script>`;
+
 
 test("catalogue cards become series entries with TMDB artwork", async () => {
   axios.get = async (url) => {
@@ -430,6 +450,49 @@ test("the Ravok player page and the HLS master provide the subtitle files", asyn
       url: "https://cdn.example.com/subs/one-piece.ja.vtt",
     },
     { lang: "English", url: "https://cdn.example.com/subs/one-piece.en.vtt" },
+  ]);
+});
+
+test("the Vidmoly mirror provides the subtitle file for every server of the episode", async () => {
+  axios.get = async (url) => {
+    if (url.includes("/episode/one-piece-season-1-37854-1x1/")) {
+      return { data: episodePageWithServers };
+    }
+    if (url === "https://rubystm.com/e/3hklgq1uj9i6.html") {
+      return {
+        data: rubystmLandingPage,
+        request: { responseUrl: finalUrl },
+      };
+    }
+    if (url === masterUrl) {
+      return { data: masterWithHindi };
+    }
+    if (url.startsWith("https://vidmoly.biz/embed-vz1m7a4x988b.html")) {
+      return { data: vidmolyPlayerPage };
+    }
+    if (url.startsWith("https://player.abyssplayer.com/")) {
+      const slug = url.split("/").pop();
+      return {
+        data: abyssPlayerPage(slug, [
+          { label: "1080p", size: 354878911, res_id: 5, status: true },
+        ]),
+      };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  axios.post = async () => ({ data: rubystmPlayerPage });
+
+  const result = await provider.fetchEpisodeSources(
+    "one-piece-season-1-37854-1x1",
+    "sub",
+  );
+
+  assert.ok(result.sources.length > 0);
+  assert.deepEqual(result.subtitles, [
+    {
+      lang: "English",
+      url: "https://srt.vidmoly.me/srt/01924/vz1m7a4x988b_English.vtt",
+    },
   ]);
 });
 

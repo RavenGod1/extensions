@@ -30,7 +30,7 @@
     },
     {
       "name": "piratexplay",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "MinAppVersion": "12.1.8",
       "statuses": ["Multi Audio", "HLS"],
       "disabled": false

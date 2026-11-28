@@ -78,9 +78,9 @@ async function fetchSeriesPage(slug) {
   return html;
 }
 
-async function fetchText(url, headers = {}) {
+async function fetchText(url, headers = {}, timeout = 25000) {
   const { data } = await axios.get(url, {
-    timeout: 25000,
+    timeout,
     headers: { Referer: `${baseUrl}/`, ...headers },
     responseType: "text",
     transformResponse: [(d) => d],
@@ -613,7 +613,42 @@ async function resolveVidmoly(mirrorUrl) {
   url.searchParams.set("pxp", Date.now());
   const html = await fetchText(url.href, { "User-Agent": browserUserAgent });
   const masterUrl = extractM3u8Url(html);
-  return masterUrl ? { masterUrl, referer: mirrorUrl } : null;
+  return masterUrl ? { masterUrl, referer: mirrorUrl, html } : null;
+}
+
+// The Vidmoly player lists its files in "baseTracks": every entry with the
+// kind "captions" is a real subtitle file of the episode.
+function parseVidmolySubtitles(html) {
+  const text = String(html || "");
+  const start = text.search(/baseTracks\s*=\s*\[/i);
+  if (start < 0) return [];
+
+  const open = text.indexOf("[", start);
+  let depth = 0;
+  let end = -1;
+  for (let index = open; index < text.length; index++) {
+    if (text[index] === "[") depth++;
+    else if (text[index] === "]") {
+      depth--;
+      if (depth === 0) {
+        end = index;
+        break;
+      }
+    }
+  }
+  if (end < 0) return [];
+
+  const subtitles = [];
+  for (const block of text.slice(open, end).matchAll(/\{([^{}]*)\}/g)) {
+    const entry = block[1];
+    const file = entry.match(/file\s*:\s*['"]([^'"]+)['"]/i)?.[1] || "";
+    const kind = entry.match(/kind\s*:\s*['"]([^'"]+)['"]/i)?.[1] || "";
+    const label = entry.match(/label\s*:\s*['"]([^'"]+)['"]/i)?.[1] || "";
+    if (!file || !/\.(vtt|srt)(\?|$)/i.test(file)) continue;
+    if (kind && kind.toLowerCase() !== "captions") continue;
+    subtitles.push({ lang: label || "English", url: file });
+  }
+  return subtitles;
 }
 
 // The "Multi Audio" mirror links one player per language; every player page
@@ -752,6 +787,43 @@ function hostMatches(url, suffix) {
   }
 }
 
+function hostStartsWith(url, prefix) {
+  try {
+    return new URL(url).hostname.startsWith(prefix);
+  } catch (_) {
+    return false;
+  }
+}
+
+// A server that carries no subtitle of its own is not the end of the search:
+// every other mirror of the same episode can ship one. The unknown players
+// list their subtitle files as a plain ".vtt"/".srt" link, so a scan of their
+// pages finds them - the file then belongs to every server of the episode,
+// because the app muxes the episode subtitles into the stream and the
+// download.
+async function scanMirrorSubtitles(mirrorUrls) {
+  const found = [];
+  await Promise.allSettled(
+    mirrorUrls.map(async (url) => {
+      const html = await fetchText(
+        url,
+        { "User-Agent": browserUserAgent },
+        4000,
+      );
+      for (const match of html.matchAll(
+        /https?:\/\/[^"'()\s<>]+\.(?:vtt|srt)(?:\?[^"'()\s<>]*)?/gi,
+      )) {
+        const subtitleUrl = match[0];
+        const lang =
+          subtitleUrl.match(/_([A-Za-z]{2,12})\.(?:vtt|srt)/i)?.[1] ||
+          "Subtitles";
+        found.push({ lang, url: subtitleUrl });
+      }
+    }),
+  );
+  return found;
+}
+
 async function fetchEpisodeSources(episodeId, category = null) {
   const slug = String(episodeId).replace(/^\/episode\//, "").replace(/\/+$/, "");
   const episodeUrl = `${baseUrl}/episode/${slug}/`;
@@ -837,44 +909,65 @@ async function fetchEpisodeSources(episodeId, category = null) {
     } catch (_) {}
   }
 
-  // Vidmoly: the last HLS mirror.
-  if (!sources.length) {
-    for (const mirrorUrl of mirrors) {
-      if (!hostMatches(mirrorUrl, "vidmoly.")) continue;
-      try {
-        const resolved = await resolveVidmoly(mirrorUrl);
-        if (!resolved) continue;
-        const manifest = await fetchText(resolved.masterUrl, {
+  // Vidmoly: the last HLS mirror. Its player carries the subtitle files of
+  // the episode, so it is read even when another server already works - the
+  // subtitles of one server belong to every server of the episode.
+  let vidmoly = null;
+  for (const mirrorUrl of mirrors) {
+    if (!hostStartsWith(mirrorUrl, "vidmoly.")) continue;
+    try {
+      const resolved = await resolveVidmoly(mirrorUrl);
+      if (!resolved) continue;
+      vidmoly = { resolved, mirrorUrl };
+      subtitles.push(...parseVidmolySubtitles(resolved.html));
+      break;
+    } catch (_) {}
+  }
+
+  if (!sources.length && vidmoly) {
+    const { resolved, mirrorUrl } = vidmoly;
+    const manifest = await fetchText(resolved.masterUrl, {
+      Referer: resolved.referer,
+      "User-Agent": browserUserAgent,
+    }).catch(() => "");
+    const built = buildLanguageSources(
+      resolved.masterUrl,
+      manifest,
+      resolved.referer,
+      nameOf(mirrorUrl) || "Vidmoly",
+    );
+    if (built.length) {
+      sources.push(...built);
+      subtitles.push(...buildHlsSubtitles(resolved.masterUrl, manifest));
+    } else {
+      sources.push({
+        url: resolved.masterUrl,
+        quality: "default",
+        name: `${nameOf(mirrorUrl) || "Vidmoly"} · Multi Audio`,
+        server: nameOf(mirrorUrl) || "Vidmoly",
+        type: "sub",
+        language: "multi",
+        lang: "Multi Audio",
+        isM3U8: true,
+        headers: {
           Referer: resolved.referer,
           "User-Agent": browserUserAgent,
-        }).catch(() => "");
-        const built = buildLanguageSources(
-          resolved.masterUrl,
-          manifest,
-          resolved.referer,
-          nameOf(mirrorUrl) || "Vidmoly",
-        );
-        if (built.length) {
-          sources.push(...built);
-        } else {
-          sources.push({
-            url: resolved.masterUrl,
-            quality: "default",
-            name: `${nameOf(mirrorUrl) || "Vidmoly"} · Multi Audio`,
-            server: nameOf(mirrorUrl) || "Vidmoly",
-            type: "sub",
-            language: "multi",
-            lang: "Multi Audio",
-            isM3U8: true,
-            headers: {
-              Referer: resolved.referer,
-              "User-Agent": browserUserAgent,
-            },
-          });
-        }
-        break;
-      } catch (_) {}
+        },
+      });
     }
+  }
+
+  // None of the known mirrors had a subtitle: the other servers of the
+  // episode get their say before the episode is given up on.
+  if (!subtitles.length) {
+    const scanTargets = mirrors.filter(
+      (url) =>
+        !hostStartsWith(url, "vidmoly.") &&
+        !hostMatches(url, "rubystm.com") &&
+        !url.includes("/proxy/multi.php") &&
+        !url.includes("ravok.buzz"),
+    );
+    subtitles.push(...(await scanMirrorSubtitles(scanTargets)));
   }
 
   return {
@@ -888,7 +981,7 @@ async function fetchEpisodeSources(episodeId, category = null) {
 
 module.exports = {
   name: "piratexplay",
-  version: "1.0.6",
+  version: "1.0.7",
   // Languages the app can offer in its "Others" picker.
   statuses: ["Multi Audio", "HLS"],
   baseUrl,
